@@ -1,0 +1,4 @@
+.env
+**/zig-out/**
+.zig-cache/**
+zig-pkg/**
