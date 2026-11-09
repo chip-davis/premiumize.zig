@@ -104,3 +104,64 @@ fn call(
     return self.decode(T, res.status, res.bytes());        
 };
 
+fn decode(self: *Client, comptime T: type, status: u16, body: []const u8) !std.json.Parsed(T) {
+    const Envelope = struct { status: []const u8 = "", message: ?[]const u8 = null };
+
+    const env = std.json.parseFromSlice(Envelope, self.allocator, body, .{
+        .ignore_unknown_fields = true,
+    }) catch |e| switch (e) {
+        error.OutOfMemory => return e,
+        else => return if (status / 100 == 2) error.InvalidResponse else error.BadStatus,
+    };
+    defer env.deinit();
+
+    if (!std.mem.eql(u8, env.value.status, "success")) {
+        self.setError(env.value.message orelse "unknown error");
+        return error.ApiError;
+    }
+
+    return std.json.parseFromSlice(T, self.allocator, body, .{
+        .ignore_unknown_fields = true,
+        .allocate = .alloc_always,
+    }) catch |e| switch (e) {
+        error.OutOfMemory => e,
+        else => error.InvalidResponse,
+    };
+}
+
+fn setError(self: *Client, msg: []const u8) void {
+    self.err_len = @min(msg.len, self.err_buf.len);
+    @memcpy(self.err_buf[0..self.err_len], msg[0..self.err_len]);
+}
+
+fn formEncode(a: Allocator, params: []const Param) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(a);
+    for (params, 0..) |p, i| {
+        if (i != 0) try out.append(a, '&');
+        try percentEncode(a, &out, p.name);
+        try out.append(a, '=');
+        try percentEncode(a, &out, p.value);
+    }
+    return out.toOwnedSlice(a);
+}
+
+fn percentEncode(a: Allocator, out: *std.ArrayList(u8), s: []const u8) !void {
+    for (s) |c| switch (c) {
+        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => try out.append(a, c),
+        else => try out.print(a, "%{X:0>2}", .{c}),
+    };
+}
+
+test formEncode {
+    const a = std.testing.allocator;
+    const s = try formEncode(a, &.{
+        .{ .name = "src", .value = "magnet:?xt=urn:btih:abc&dn=a b" },
+        .{ .name = "folder_id", .value = "123" },
+    });
+    defer a.free(s);
+    try std.testing.expectEqualStrings(
+        "src=magnet%3A%3Fxt%3Durn%3Abtih%3Aabc%26dn%3Da%20b&folder_id=123",
+        s,
+    );
+}
