@@ -46,7 +46,7 @@ pub const Account = struct {
 
     pub const Info = struct {
         customer_id: []const u8,
-        premium_unitil: ?i64 = null, // unix timestamp
+        premium_until: ?i64 = null, // unix timestamp
         limit_used: f64 = 0, // fraction of fair-use limit        
         space_used: f64 = 0 // bytes
     };
@@ -87,7 +87,7 @@ fn call(
     const form: ?[]u8 = if (method == .GET) null else try formEncode(a, params);
     defer if (form) |f| a.free(f);
 
-    const bearer: ?[]const u8 = switch (self.optios.auth) {
+    const bearer: ?[]const u8 = switch (self.options.auth) {
         .access_token => |t| t,
         .api_key => null,
     };
@@ -101,8 +101,8 @@ fn call(
     });
     defer res.deinit();
 
-    return self.decode(T, res.status, res.bytes());        
-};
+    return self.decode(T, res.status, res.bytes());
+}
 
 fn decode(self: *Client, comptime T: type, status: u16, body: []const u8) !std.json.Parsed(T) {
     const Envelope = struct { status: []const u8 = "", message: ?[]const u8 = null };

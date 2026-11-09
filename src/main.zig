@@ -3,26 +3,22 @@ const httpx = @import("httpx");
 const Io = std.Io;
 
 const premiumize_zig = @import("premiumize_zig");
-const API_BASE = "https://www.premiumize.me/api/";
 
 pub fn main(init: std.process.Init) !void {
-    const arena: std.mem.Allocator = init.arena.allocator();
+    const a = init.arena.allocator();
     const io = Io.Threaded.global_single_threaded.io();
-    const env = init.environ_map;
-    if (!env.contains("API_KEY")) {
-        std.debug.print("Error: API_KEY is not set.", .{});
-        std.process.exit(1);
-    }
-    var client = httpx.Client.init(arena, io, .{});
-    defer client.deinit();
 
-    var response = client.fetch(API_BASE ++ "account/info", .{
-        .bearerAuth = env.get("API_KEY"),
-        .timeoutMs = 10_000,
-    }) catch |err| {
-        std.debug.print("request failed: {s}\n", .{@errorName(err)});
+    const args = try init.minimal.args.toSlice(a);
+    if (args.len < 2) {
+        std.debug.print("usage: {s} <api-key>\n", .{args[0]});
+        std.process.exit(2);
+    }
+    var pm = premiumize_zig.Client.init(a, io, .{ .auth = .{ .api_key = args[1] } });
+    defer pm.deinit();
+
+    const info = pm.account().info() catch |err| {
+        std.debug.print("{s}: {s}\n", .{ @errorName(err), pm.lastError() orelse "" });
         return;
     };
-    defer response.deinit();
-    std.debug.print("{d}: {s}\n", .{ response.status, response.bytes() });
+    std.debug.print("customer {s}, space used {d}\n", .{ info.value.customer_id, info.value.space_used });
 }

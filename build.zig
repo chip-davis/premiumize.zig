@@ -83,6 +83,8 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    // The library uses httpx internally; the exe gets it too while main.zig imports it.
+    mod.addImport("httpx", httpx_dep.module("httpx"));
     exe.root_module.addImport("httpx", httpx_dep.module("httpx"));
 
     // This declares intent for the executable to be installed into the
