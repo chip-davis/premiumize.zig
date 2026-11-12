@@ -87,3 +87,10 @@ pub const ItemFile = struct {
 
 /// POST /transfer/create
 pub const TransferCreate = struct { id: []const u8, name: []const u8 };
+
+/// POST /transfer/directdl
+pub const TransferDirectDl = struct {
+    content: []const DirectDlFile = &.{},
+};
+
+pub const DirectDlFile = struct { path: []const u8, size: u64, link: []const u8 };

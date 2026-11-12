@@ -35,3 +35,14 @@ pub fn create(self: Transfer, opts: TransferCreateOptions) !std.json.Parsed(type
 
     return self.client.post(types.TransferCreate, endpoints.transfer.create, buf[0..n]);
 }
+
+pub const TransferDirectdlOptions = struct {
+    src: []const u8, // Transfer source URL
+};
+
+/// POST /transfer/directdl
+/// Generates direct download links from a transfer source without storing it in your cloud. The content array can hold one or many file entries
+/// — a single hoster URL typically resolves to one file, while a magnet or torrent source resolves to every file inside the archive.
+pub fn directdl(self: Transfer, opts: TransferDirectdlOptions) !std.json.Parsed(types.TransferDirectDl) {
+    return self.client.post(types.TransferDirectDl, endpoints.transfer.directdl, .{.{ .name = "src", .value = opts.src }});
+}

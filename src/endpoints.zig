@@ -23,4 +23,5 @@ pub const item = struct {
 
 pub const transfer = struct {
     pub const create = "/transfer/create";
+    pub const directdl = "/transfer/directdl";
 };
