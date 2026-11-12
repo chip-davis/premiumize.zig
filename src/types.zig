@@ -49,3 +49,6 @@ pub const FolderDelete = struct {};
 
 /// POST /folder/paste
 pub const FolderPaste = struct {};
+
+/// POST /folder/uploadinfo
+pub const FolderUploadInfo = struct { token: []const u8, url: []const u8 };

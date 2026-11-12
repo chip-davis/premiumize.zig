@@ -73,7 +73,7 @@ pub const FolderPasteOptions = struct {
     files: []const []const u8 = &.{}, // File IDs to move. Optional
     folders: []const []const u8 = &.{}, // Folder IDs to move. Optional.
 };
-/// POST /folder/pase : Moves files and/or folders into a target folder.
+/// POST /folder/paste : Moves files and/or folders into a target folder.
 pub fn paste(self: Folder, opts: FolderPasteOptions) !std.json.Parsed(types.FolderPaste) {
     if (opts.files.len == 0 and opts.folders.len == 0) return Client.Error.InvalidArgument;
 
@@ -89,4 +89,22 @@ pub fn paste(self: Folder, opts: FolderPasteOptions) !std.json.Parsed(types.Fold
     for (opts.folders) |f| params.appendAssumeCapacity(.{ .name = "folders[]", .value = f });
 
     return self.client.post(types.FolderPaste, endpoints.folder.paste, params.items);
+}
+
+pub const FolderUploadInfoOptions = struct {
+    id: []const u8, // Target folder ID. Optional; defaults to root.
+};
+
+/// POST /folder/uploadinfo : Returns an upload token and URL for direct file upload to a folder.
+/// Two-step flow: call this endpoint to get a one-shot upload url and token, then POST your file to that url.
+pub fn uploadinfo(self: Folder, opts: FolderUploadInfoOptions) !std.json.Parsed(types.FolderUploadInfo) {
+    var buf: [1]Client.Param = undefined;
+    var n: usize = 0;
+
+    if (opts.id) |id| {
+        buf[n] = .{ .name = "id", .value = id };
+        n += 1;
+    }
+
+    return self.client.post(types.FolderUploadInfo, endpoints.folder.uploadinfo, buf[0..n]);
 }

@@ -10,4 +10,5 @@ pub const folder = struct {
     pub const rename = "/folder/rename";
     pub const paste = "/folder/paste";
     pub const delete = "/folder/delete";
+    pub const uploadinfo = "/folder/uploadinfo";
 };
