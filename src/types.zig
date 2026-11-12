@@ -37,3 +37,9 @@ pub const Content = struct {
     mime_type: ?[]const u8 = null,
     link: ?[]const u8 = null,
 };
+
+/// POST /folder/create
+pub const FolderCreate = struct { id: []const u8 };
+
+/// POST /folder/rename
+pub const FolderRename = struct {};
