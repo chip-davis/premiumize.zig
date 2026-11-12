@@ -94,3 +94,28 @@ pub const TransferDirectDl = struct {
 };
 
 pub const DirectDlFile = struct { path: []const u8, size: u64, link: []const u8 };
+
+/// GET /transfer/list
+pub const TransferList = struct {
+    transfers: []const TransferEntry = &.{},
+};
+
+pub const TransferEntry = struct {
+    id: []const u8,
+    name: []const u8,
+    status: []const u8, // one of queued, running, finished, seeding, error
+    progress: f64, // 0.0 to 1.0
+    message: []const u8 = "",
+    folder_id: ?[]const u8 = null, // null until finished/seeding, or if routed to an external cloud
+    file_id: ?[]const u8 = null, // null until finished, for multi-file sources, or if routed to an external cloud
+    created_at: i64,
+};
+
+/// POST /transfer/retry
+pub const TransferRetry = struct {};
+
+/// POST /transfer/delete
+pub const TransferDelete = struct {};
+
+/// POST /transfer/clearfinished
+pub const TransferClearFinished = struct {};

@@ -24,4 +24,8 @@ pub const item = struct {
 pub const transfer = struct {
     pub const create = "/transfer/create";
     pub const directdl = "/transfer/directdl";
+    pub const list = "/transfer/list";
+    pub const retry = "/transfer/retry";
+    pub const delete = "/transfer/delete";
+    pub const clearfinished = "/transfer/clearfinished";
 };

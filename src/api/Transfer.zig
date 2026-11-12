@@ -46,3 +46,30 @@ pub const TransferDirectdlOptions = struct {
 pub fn directdl(self: Transfer, opts: TransferDirectdlOptions) !std.json.Parsed(types.TransferDirectDl) {
     return self.client.post(types.TransferDirectDl, endpoints.transfer.directdl, .{.{ .name = "src", .value = opts.src }});
 }
+
+/// GET /transfer/list : Returns every transfer the user has created — active, queued, finished, and errored — newest first.
+/// Responses are not cached; expect to poll while a transfer is running.
+pub fn list(self: Transfer) !std.json.Parsed(types.TransferList) {
+    return self.client.get(types.TransferList, endpoints.transfer.list, &.{});
+}
+
+pub const TransferRetryOptions = struct {
+    id: []const u8, // Transfer ID. Required.
+};
+/// POST /transfer/retry : Re-queues a failed transfer.
+pub fn retry(self: Transfer, opts: TransferRetryOptions) !std.json.Parsed(types.TransferRetry) {
+    return self.client.post(types.TransferRetry, endpoints.transfer.retry, &.{.{ .name = "id", .value = opts.id }});
+}
+
+pub const TransferDeleteOptions = struct {
+    id: []const u8, // Transfer ID. Required.
+};
+/// POST /transfer/delete : Deletes a transfer record.
+pub fn delete(self: Transfer, opts: TransferDeleteOptions) !std.json.Parsed(types.TransferDelete) {
+    return self.client.post(types.TransferDelete, endpoints.transfer.delete, &.{.{ .name = "id", .value = opts.id }});
+}
+
+/// POST /transfer/clearfinished : Removes all finished transfers from the list.
+pub fn clearfinished(self: Transfer) !std.json.Parsed(types.TransferClearFinished) {
+    return self.client.post(types.TransferClearFinished, endpoints.transfer.clearfinished, &.{});
+}
