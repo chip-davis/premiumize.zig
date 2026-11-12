@@ -5,6 +5,7 @@ const Folder = @This();
 const std = @import("std");
 const Client = @import("../Client.zig");
 const types = @import("../types.zig");
+const endpoints = @import("../endpoints.zig");
 
 client: *Client,
 
@@ -27,7 +28,7 @@ pub fn list(self: Folder, opts: FolderListOptions) !std.json.Parsed(types.Folder
         n += 1;
     }
 
-    return self.client.get(types.FolderList, "/folder/list", buf[0..n]);
+    return self.client.get(types.FolderList, endpoints.folder.list, buf[0..n]);
 }
 
 pub const FolderCreateOptions = struct {
@@ -46,7 +47,7 @@ pub fn create(self: Folder, opts: FolderCreateOptions) !std.json.Parsed(types.Fo
     buf[n] = .{ .name = "name", .value = opts.name };
     n += 1;
 
-    return self.client.post(types.FolderCreate, "/folder/create", buf[0..n]);
+    return self.client.post(types.FolderCreate, endpoints.folder.create, buf[0..n]);
 }
 
 pub const FolderRenameOptions = struct {
@@ -55,7 +56,7 @@ pub const FolderRenameOptions = struct {
 };
 /// POST /folder/rename : Renames a folder.
 pub fn rename(self: Folder, opts: FolderRenameOptions) !std.json.Parsed(types.FolderRename) {
-    return self.client.post(types.FolderRename, &.{ .{ .name = "id", .value = opts.id }, .{ .name = "name", .value = opts.name } });
+    return self.client.post(types.FolderRename, endpoints.folder.rename, &.{ .{ .name = "id", .value = opts.id }, .{ .name = "name", .value = opts.name } });
 }
 
 pub const FolderDeleteOptions = struct {
@@ -63,7 +64,7 @@ pub const FolderDeleteOptions = struct {
 };
 /// POST /folder/delete : Deletes a folder and its contents.
 pub fn delete(self: Folder, opts: FolderDeleteOptions) !std.json.Parsed(types.FolderDelete) {
-    return self.client.post(types.FolderDelete, &.{.{ .name = "id", .value = opts.id }});
+    return self.client.post(types.FolderDelete, endpoints.folder.delete, &.{.{ .name = "id", .value = opts.id }});
 }
 
 /// At least one of files[] or folders[] is required.
@@ -87,5 +88,5 @@ pub fn paste(self: Folder, opts: FolderPasteOptions) !std.json.Parsed(types.Fold
     for (opts.files) |f| params.appendAssumeCapacity(.{ .name = "files[]", .value = f });
     for (opts.folders) |f| params.appendAssumeCapacity(.{ .name = "folders[]", .value = f });
 
-    return self.client.post(types.FolderPaste, "/folder/paste", params.items);
+    return self.client.post(types.FolderPaste, endpoints.folder.paste, params.items);
 }
