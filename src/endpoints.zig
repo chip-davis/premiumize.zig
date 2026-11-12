@@ -18,4 +18,5 @@ pub const item = struct {
     pub const details = "/item/details";
     pub const rename = "/item/rename";
     pub const delete = "/item/delete";
+    pub const listall = "/item/listall";
 };

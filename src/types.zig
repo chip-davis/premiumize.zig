@@ -68,5 +68,19 @@ pub const ItemDetails = struct { id: []const u8, name: []const u8, size: u64, cr
 /// POST /item/rename
 pub const ItemRename = struct {};
 
-/// POST /api/item/delete
+/// POST /item/delete
 pub const ItemDelete = struct {};
+
+/// GET /item/listall
+pub const ItemListAll = struct {
+    files: []const ItemFile = &.{},
+};
+
+pub const ItemFile = struct {
+    id: []const u8,
+    name: []const u8,
+    path: []const u8, // full path from the root
+    size: u64, // in bytes
+    created_at: i64,
+    mime_type: ?[]const u8 = null,
+};
