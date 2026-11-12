@@ -20,3 +20,7 @@ pub const item = struct {
     pub const delete = "/item/delete";
     pub const listall = "/item/listall";
 };
+
+pub const transfer = struct {
+    pub const create = "/transfer/create";
+};

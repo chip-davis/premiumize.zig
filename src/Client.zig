@@ -158,6 +158,12 @@ pub fn item(self: *Client) Item {
     return .{ .client = self };
 }
 
+pub const Transfer = @import("api/Transfer.zig");
+
+pub fn transfer(self: *Client) Transfer {
+    return .{ .client = self };
+}
+
 test formEncode {
     const a = std.testing.allocator;
     const s = try formEncode(a, &.{
