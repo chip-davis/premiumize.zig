@@ -67,3 +67,6 @@ pub const ItemDetails = struct { id: []const u8, name: []const u8, size: u64, cr
 
 /// POST /item/rename
 pub const ItemRename = struct {};
+
+/// POST /api/item/delete
+pub const ItemDelete = struct {};

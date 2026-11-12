@@ -27,3 +27,12 @@ pub const ItemRenameOptions = struct {
 pub fn rename(self: Item, opts: ItemRenameOptions) std.json.Parsed(types.ItemRename) {
     return self.client.post(types.ItemRename, endpoints.item.rename, &.{ .{ .name = "id", .value = opts.id }, .{ .name = "name", .value = opts.value } });
 }
+
+pub const ItemDeleteOptions = struct {
+    id: []const u8, // File ID
+};
+
+/// POST /item/delete : Deletes a file
+pub fn delete(self: Item, opts: ItemDeleteOptions) std.json.Parsed(types.ItemDelete) {
+    return self.client.post(types.ItemDelete, endpoints.item.delete, &.{.{ .name = "id", .value = opts.id }});
+}
