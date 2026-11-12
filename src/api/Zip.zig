@@ -5,6 +5,7 @@ const std = @import("std");
 const Client = @import("../Client.zig");
 const types = @import("../types.zig");
 const endpoints = @import("../endpoints.zig");
+const mock = @import("../testing.zig");
 client: *Client,
 
 /// At least one of files[] or folders[] is required.
@@ -29,4 +30,24 @@ pub fn generate(self: Zip, opts: ZipGenerateOptions) !std.json.Parsed(types.ZipG
     for (opts.folders) |f| params.appendAssumeCapacity(.{ .name = "folders[]", .value = f });
 
     return self.client.post(types.ZipGenerate, endpoints.zip.generate, params.items);
+}
+
+test "zip/generate" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"success","location":"https://dl/MyFolder.zip"}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    const res = try c.zip().generate(.{ .files = &.{"f1"}, .folders = &.{ "d1", "d2" } });
+    defer res.deinit();
+
+    try srv.expectPost("POST /api/zip/generate?apikey=test-key", "files%5B%5D=f1&folders%5B%5D=d1&folders%5B%5D=d2");
+    try std.testing.expectEqualStrings("https://dl/MyFolder.zip", res.value.location);
+}
+
+test "zip/generate requires files or folders" {
+    var c = Client.init(std.testing.allocator, undefined, .{ .auth = .{ .api_key = mock.api_key } });
+    try std.testing.expectError(error.InvalidArgument, c.zip().generate(.{}));
 }

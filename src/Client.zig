@@ -262,3 +262,78 @@ test formEncode {
         s,
     );
 }
+
+test "access_token auth sends a bearer header and no apikey" {
+    const mock = @import("testing.zig");
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"success","customer_id":"1"}
+    );
+    defer srv.deinit();
+    var c = srv.clientWithAuth(.{ .access_token = "tok123" });
+    defer c.deinit();
+
+    const res = try c.account().info();
+    defer res.deinit();
+
+    try srv.expectGet("GET /api/account/info");
+    try std.testing.expect(srv.hasHeader("authorization", "Bearer tok123"));
+}
+
+test "api error end to end" {
+    const mock = @import("testing.zig");
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"error","code":"authentication_failed","message":"API key invalid"}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    try std.testing.expectError(error.ApiError, c.account().info());
+    try std.testing.expectEqual(ErrorCode.authentication_failed, c.lastErrorCode().?);
+    try std.testing.expectEqual(ErrorCode.Retry.permanent, c.lastErrorCode().?.retry());
+    try std.testing.expectEqualStrings("API key invalid", c.lastError().?);
+}
+
+test "response that doesn't match the type is InvalidResponse" {
+    const mock = @import("testing.zig");
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"success"}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    // AccountInfo requires customer_id.
+    try std.testing.expectError(error.InvalidResponse, c.account().info());
+    try std.testing.expectEqualStrings("MissingField", c.lastError().?);
+}
+
+test "http 500 is BadStatus with unknown_error" {
+    const mock = @import("testing.zig");
+    const srv = try mock.MockServer.start(std.testing.allocator, 500, "Internal Server Error");
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    try std.testing.expectError(error.BadStatus, c.account().info());
+    try std.testing.expectEqual(ErrorCode.unknown_error, c.lastErrorCode().?);
+}
+
+test "error state resets on the next call" {
+    const mock = @import("testing.zig");
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"success","customer_id":"1"}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    // Pretend a previous call failed.
+    c.err_code = .not_found;
+    c.setError("stale");
+
+    const res = try c.account().info();
+    defer res.deinit();
+    try std.testing.expectEqual(@as(?ErrorCode, null), c.lastErrorCode());
+    try std.testing.expectEqual(@as(?[]const u8, null), c.lastError());
+}

@@ -4,6 +4,7 @@ const std = @import("std");
 const Client = @import("../Client.zig");
 const types = @import("../types.zig");
 const endpoints = @import("../endpoints.zig");
+const mock = @import("../testing.zig");
 
 client: *Client,
 
@@ -72,4 +73,121 @@ pub fn delete(self: Transfer, opts: TransferDeleteOptions) !std.json.Parsed(type
 /// POST /transfer/clearfinished : Removes all finished transfers from the list.
 pub fn clearfinished(self: Transfer) !std.json.Parsed(types.TransferClearFinished) {
     return self.client.post(types.TransferClearFinished, endpoints.transfer.clearfinished, &.{});
+}
+
+test "transfer/create" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"success","id":"t1","name":"My.Transfer"}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    const res = try c.transfer().create(.{ .src = "magnet:?xt=urn:btih:abc&dn=a b", .folder_id = "d1", .password = "pw" });
+    defer res.deinit();
+
+    try srv.expectPost("POST /api/transfer/create?apikey=test-key", "src=magnet%3A%3Fxt%3Durn%3Abtih%3Aabc%26dn%3Da%20b&folder_id=d1&password=pw");
+    try std.testing.expectEqualStrings("t1", res.value.id);
+    try std.testing.expectEqualStrings("My.Transfer", res.value.name);
+}
+
+test "transfer/create minimal" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"success","id":"t1","name":"x"}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    const res = try c.transfer().create(.{ .src = "https://host/file" });
+    defer res.deinit();
+
+    try srv.expectPost("POST /api/transfer/create?apikey=test-key", "src=https%3A%2F%2Fhost%2Ffile");
+}
+
+test "transfer/directdl" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"success","content":[
+        \\  {"path":"Folder/video1.mkv","size":123456789,"link":"https://dl/1"},
+        \\  {"path":"Folder/video2.mkv","size":234567890,"link":"https://dl/2"}
+        \\]}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    const res = try c.transfer().directdl(.{ .src = "https://host/file" });
+    defer res.deinit();
+
+    try srv.expectPost("POST /api/transfer/directdl?apikey=test-key", "src=https%3A%2F%2Fhost%2Ffile");
+    try std.testing.expectEqual(@as(usize, 2), res.value.content.len);
+    try std.testing.expectEqualStrings("https://dl/2", res.value.content[1].link);
+    try std.testing.expectEqual(@as(u64, 234567890), res.value.content[1].size);
+}
+
+test "transfer/list" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"success","transfers":[
+        \\  {"id":"t1","name":"video.mkv","status":"running","progress":0.42,"message":"Downloading from server",
+        \\   "folder_id":null,"file_id":null,"created_at":1700000000,"src":"https://old","other_cloud_id":null},
+        \\  {"id":"t2","name":"movie.mkv","status":"finished","progress":1.0,"message":"",
+        \\   "folder_id":"d1","file_id":"f1","created_at":1700000000}
+        \\]}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    const res = try c.transfer().list();
+    defer res.deinit();
+
+    try srv.expectGet("GET /api/transfer/list?apikey=test-key");
+    const t = res.value.transfers;
+    try std.testing.expectEqual(@as(usize, 2), t.len);
+    try std.testing.expectEqualStrings("running", t[0].status);
+    try std.testing.expectEqual(@as(f64, 0.42), t[0].progress);
+    try std.testing.expectEqual(@as(?[]const u8, null), t[0].folder_id);
+    try std.testing.expectEqualStrings("f1", t[1].file_id.?);
+}
+
+test "transfer/retry" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"success"}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    const res = try c.transfer().retry(.{ .id = "t1" });
+    defer res.deinit();
+
+    try srv.expectPost("POST /api/transfer/retry?apikey=test-key", "id=t1");
+}
+
+test "transfer/delete" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"success"}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    const res = try c.transfer().delete(.{ .id = "t1" });
+    defer res.deinit();
+
+    try srv.expectPost("POST /api/transfer/delete?apikey=test-key", "id=t1");
+}
+
+test "transfer/clearfinished" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"success"}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    const res = try c.transfer().clearfinished();
+    defer res.deinit();
+
+    try srv.expectPost("POST /api/transfer/clearfinished?apikey=test-key", "");
 }
