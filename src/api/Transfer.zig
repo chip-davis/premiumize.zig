@@ -9,8 +9,8 @@ client: *Client,
 
 pub const TransferCreateOptions = struct {
     src: []const u8, // A URI for the transfer (as a string) or a source file for the transfer (multipart upload)
-    folder_id: ?[]const u8 = .{}, // Target folder. Optional
-    password: ?[]const u8 = .{}, // Password for thr tranfer. Optional
+    folder_id: ?[]const u8 = null, // Target folder. Optional
+    password: ?[]const u8 = null, // Password for thr tranfer. Optional
 };
 
 /// POST /transfer/create
@@ -44,7 +44,7 @@ pub const TransferDirectdlOptions = struct {
 /// Generates direct download links from a transfer source without storing it in your cloud. The content array can hold one or many file entries
 /// — a single hoster URL typically resolves to one file, while a magnet or torrent source resolves to every file inside the archive.
 pub fn directdl(self: Transfer, opts: TransferDirectdlOptions) !std.json.Parsed(types.TransferDirectDl) {
-    return self.client.post(types.TransferDirectDl, endpoints.transfer.directdl, .{.{ .name = "src", .value = opts.src }});
+    return self.client.post(types.TransferDirectDl, endpoints.transfer.directdl, &.{.{ .name = "src", .value = opts.src }});
 }
 
 /// GET /transfer/list : Returns every transfer the user has created — active, queued, finished, and errored — newest first.

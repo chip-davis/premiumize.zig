@@ -25,7 +25,7 @@ pub const ItemRenameOptions = struct {
 /// POST /item/rename
 /// Renames a file.
 pub fn rename(self: Item, opts: ItemRenameOptions) !std.json.Parsed(types.ItemRename) {
-    return self.client.post(types.ItemRename, endpoints.item.rename, &.{ .{ .name = "id", .value = opts.id }, .{ .name = "name", .value = opts.value } });
+    return self.client.post(types.ItemRename, endpoints.item.rename, &.{ .{ .name = "id", .value = opts.id }, .{ .name = "name", .value = opts.name } });
 }
 
 pub const ItemDeleteOptions = struct {

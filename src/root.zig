@@ -5,6 +5,9 @@ test {
     // Pull in tests from all files.
     @import("std").testing.refAllDecls(@This());
     _ = Client;
-    _ = @import("api/Account.zig");
-    _ = @import("api/Folder.zig");
+    // Type-check every endpoint, even ones nothing calls yet.
+    @import("std").testing.refAllDecls(Client.Account);
+    @import("std").testing.refAllDecls(Client.Folder);
+    @import("std").testing.refAllDecls(Client.Item);
+    @import("std").testing.refAllDecls(Client.Transfer);
 }

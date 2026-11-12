@@ -92,7 +92,7 @@ pub fn paste(self: Folder, opts: FolderPasteOptions) !std.json.Parsed(types.Fold
 }
 
 pub const FolderUploadInfoOptions = struct {
-    id: []const u8, // Target folder ID. Optional; defaults to root.
+    id: ?[]const u8 = null, // Target folder ID. Optional; defaults to root.
 };
 
 /// POST /folder/uploadinfo : Returns an upload token and URL for direct file upload to a folder.
