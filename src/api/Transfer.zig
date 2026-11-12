@@ -65,6 +65,46 @@ pub fn get(self: Transfer, opts: TransferGetOptions) !?std.json.Parsed(types.Tra
     res.deinit();
     return null;
 }
+
+pub const TransferWaitOptions = struct {
+    id: []const u8, // Transfer ID. Required.
+    interval_s: u32 = 3, // Seconds between polls.
+    timeout_s: u32 = 60, // Give up after this long. Returns error.Timeout.
+    not_found_grace: u32 = 2, // Polls to allow before a missing ID becomes error.TransferNotFound.
+};
+
+/// Helper function around get() : Polls until finished, seeding or errored.
+/// A failed transfer is returned, not raised; check `.status` and `.message`.
+pub fn wait(self: Transfer, opts: TransferWaitOptions) !std.json.Parsed(types.TransferEntry) {
+    if (opts.interval_s == 0) return Client.Error.InvalidArgument;
+
+    var waited: u32 = 0;
+    var misses: u32 = 0;
+
+    while (waited <= opts.timeout_s) : (waited += opts.interval_s) {
+        if (waited > 0) try self.client.io.sleep(.fromSeconds(opts.interval_s), .awake);
+
+        const maybe = self.get(.{ .id = opts.id }) catch |e| switch (e) {
+            error.ApiError => switch ((self.client.lastErrorCode() orelse return e).retry()) {
+                .transient, .semi_permanent => continue,
+                .permanent, .unknown => return e,
+            },
+            else => return e,
+        };
+
+        if (maybe) |t| {
+            switch (t.value.status) {
+                .finished, .seeding, .@"error" => return t,
+                .queued, .running, .unknown => t.deinit(),
+            }
+        } else {
+            misses += 1;
+            if (misses > opts.not_found_grace) return Client.Error.TransferNotFound;
+        }
+    }
+    return Client.Error.Timeout;
+}
+
 pub const TransferRetryOptions = struct {
     id: []const u8, // Transfer ID. Required.
 };
@@ -222,6 +262,108 @@ test "transfer get api error" {
 
     try std.testing.expectError(error.ApiError, c.transfer().get(.{ .id = "t1" }));
     try std.testing.expectEqual(Client.ErrorCode.authentication_failed, c.lastErrorCode().?);
+}
+
+test "transfer wait finished" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"success","transfers":[
+        \\  {"id":"t1","name":"movie.mkv","status":"finished","progress":null,"message":null,"folder_id":"d1","file_id":"f1","created_at":1700000000}
+        \\]}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    const res = try c.transfer().wait(.{ .id = "t1" });
+    defer res.deinit();
+
+    try srv.expectGet("GET /api/transfer/list?apikey=test-key");
+    try std.testing.expectEqual(types.TransferStatus.finished, res.value.status);
+    try std.testing.expectEqualStrings("d1", res.value.folder_id.?);
+}
+
+test "transfer wait returns failed transfer" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"success","transfers":[
+        \\  {"id":"t1","name":"movie.mkv","status":"error","progress":null,"message":"Torrent has no seeders","folder_id":null,"file_id":null,"created_at":1700000000}
+        \\]}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    // A failed transfer is a value, not a Zig error, so the message is reachable.
+    const res = try c.transfer().wait(.{ .id = "t1" });
+    defer res.deinit();
+
+    try std.testing.expectEqual(types.TransferStatus.@"error", res.value.status);
+    try std.testing.expectEqualStrings("Torrent has no seeders", res.value.message.?);
+}
+
+test "transfer wait timeout" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"success","transfers":[
+        \\  {"id":"t1","name":"movie.mkv","status":"running","progress":0.5,"message":null,"folder_id":null,"file_id":null,"created_at":1700000000}
+        \\]}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    // timeout_s = 0 polls once and gives up without sleeping.
+    try std.testing.expectError(error.Timeout, c.transfer().wait(.{ .id = "t1", .timeout_s = 0 }));
+}
+
+test "transfer wait not found" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"success","transfers":[]}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    try std.testing.expectError(error.TransferNotFound, c.transfer().wait(.{ .id = "t1", .not_found_grace = 0 }));
+}
+
+test "transfer wait not found within grace" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"success","transfers":[]}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    // Inside the grace period a missing ID keeps waiting, so the deadline hits first.
+    try std.testing.expectError(error.Timeout, c.transfer().wait(.{ .id = "t1", .timeout_s = 0 }));
+}
+
+test "transfer wait permanent api error" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"error","message":"Not logged in.","code":"authentication_failed"}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    try std.testing.expectError(error.ApiError, c.transfer().wait(.{ .id = "t1" }));
+    try std.testing.expectEqual(Client.ErrorCode.authentication_failed, c.lastErrorCode().?);
+}
+
+test "transfer wait retryable api error" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"error","message":"Slow down.","code":"rate_limit_reached"}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    // Retryable errors keep waiting instead of failing, so the deadline hits first.
+    try std.testing.expectError(error.Timeout, c.transfer().wait(.{ .id = "t1", .timeout_s = 0 }));
+}
+
+test "transfer wait requires interval" {
+    var c = Client.init(std.testing.allocator, undefined, .{ .auth = .{ .api_key = mock.api_key } });
+    try std.testing.expectError(error.InvalidArgument, c.transfer().wait(.{ .id = "t1", .interval_s = 0 }));
 }
 
 test "transfer/retry" {
