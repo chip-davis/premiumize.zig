@@ -11,4 +11,5 @@ test {
     @import("std").testing.refAllDecls(Client.Item);
     @import("std").testing.refAllDecls(Client.Transfer);
     @import("std").testing.refAllDecls(Client.Cache);
+    @import("std").testing.refAllDecls(Client.Services);
 }

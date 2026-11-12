@@ -33,3 +33,7 @@ pub const transfer = struct {
 pub const cache = struct {
     pub const check = "/cache/check";
 };
+
+pub const services = struct {
+    pub const list = "/services/list";
+};

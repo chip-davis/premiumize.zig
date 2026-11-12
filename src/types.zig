@@ -141,3 +141,14 @@ pub const FileSize = struct {
         };
     }
 };
+
+/// GET /services/list
+/// Object fields keyed by service name use std.json.ArrayHashMap; read them via `.map.get(name)`.
+pub const ServicesList = struct {
+    cache: []const []const u8 = &.{}, // services usable with /cache/check
+    directdl: []const []const u8 = &.{}, // services usable with /transfer/directdl
+    queue: []const []const u8 = &.{}, // services usable with /transfer/create
+    fairusefactor: std.json.ArrayHashMap(f64) = .{}, // per-service fair-use multiplier
+    aliases: std.json.ArrayHashMap([]const []const u8) = .{}, // extra domains per service; best-effort
+    regexpatterns: std.json.ArrayHashMap([]const []const u8) = .{}, // URL regexes per service; best-effort
+};
