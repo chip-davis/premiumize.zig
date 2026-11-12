@@ -61,3 +61,6 @@ pub const FolderSearch = struct {
     name: []const u8 = "",
     content: []const Content = &.{},
 };
+
+/// GET /item/details
+pub const ItemDetails = struct { id: []const u8, name: []const u8, size: u64, created_at: i64, folder_id: []const u8, mime_type: []const u8, link: []const u8 };

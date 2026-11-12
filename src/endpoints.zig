@@ -13,3 +13,7 @@ pub const folder = struct {
     pub const uploadinfo = "/folder/uploadinfo";
     pub const search = "/folder/search";
 };
+
+pub const item = struct {
+    pub const details = "/item/details";
+};

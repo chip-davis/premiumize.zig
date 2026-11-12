@@ -152,6 +152,12 @@ pub fn folder(self: *Client) Folder {
     return .{ .client = self };
 }
 
+pub const Item = @import("api/Item.zig");
+
+pub fn item(self: *Client) Item {
+    return .{ .client = self };
+}
+
 test formEncode {
     const a = std.testing.allocator;
     const s = try formEncode(a, &.{
