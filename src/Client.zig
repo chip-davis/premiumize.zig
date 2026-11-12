@@ -164,6 +164,12 @@ pub fn transfer(self: *Client) Transfer {
     return .{ .client = self };
 }
 
+pub const Cache = @import("api/Cache.zig");
+
+pub fn cache(self: *Client) Cache {
+    return .{ .client = self };
+}
+
 test formEncode {
     const a = std.testing.allocator;
     const s = try formEncode(a, &.{

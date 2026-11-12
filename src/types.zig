@@ -1,5 +1,5 @@
 //! Response types for the Premiumize API.
-
+const std = @import("std");
 /// GET /account/info
 pub const AccountInfo = struct {
     customer_id: []const u8,
@@ -119,3 +119,25 @@ pub const TransferDelete = struct {};
 
 /// POST /transfer/clearfinished
 pub const TransferClearFinished = struct {};
+
+/// POST /cache/check
+pub const CacheCheck = struct {
+    response: []const bool = &.{},
+    filename: []const ?[]const u8 = &.{},
+    filesize: []const FileSize = &.P{,}
+}
+
+pub const FileSize = struct {
+    bytes: u64,
+
+    pub fn jsonParse(a: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !FileSize {
+        _ = options;
+        return switch (try source.nextAlloc(a, .alloc_if_needed)) {
+            .number, .allocated_number, .string, .allocated_string => |s| .{
+                .bytes = std.fmt.parseInt(u64, s, 10) catch return error.InvalidNumber,
+            },
+            .null => .{ .bytes = 0 },
+            else => error.UnexpectedToken,
+        };
+    }
+};

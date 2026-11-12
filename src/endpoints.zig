@@ -29,3 +29,7 @@ pub const transfer = struct {
     pub const delete = "/transfer/delete";
     pub const clearfinished = "/transfer/clearfinished";
 };
+
+pub const cache = struct {
+    pub const check = "/cache/check";
+};
