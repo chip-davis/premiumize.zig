@@ -124,8 +124,8 @@ pub const TransferClearFinished = struct {};
 pub const CacheCheck = struct {
     response: []const bool = &.{},
     filename: []const ?[]const u8 = &.{},
-    filesize: []const FileSize = &.P{,}
-}
+    filesize: []const FileSize = &.{},
+};
 
 pub const FileSize = struct {
     bytes: u64,
