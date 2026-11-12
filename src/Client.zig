@@ -106,7 +106,11 @@ fn decode(self: *Client, comptime T: type, status: u16, body: []const u8) !std.j
         .allocate = .alloc_always,
     }) catch |e| switch (e) {
         error.OutOfMemory => e,
-        else => error.InvalidResponse,
+        else => {
+            // e.g. "MissingField", "Overflow", "UnexpectedToken"
+            self.setError(@errorName(e));
+            return error.InvalidResponse;
+        },
     };
 }
 
@@ -139,6 +143,12 @@ fn percentEncode(a: Allocator, out: *std.ArrayList(u8), s: []const u8) !void {
 pub const Account = @import("api/Account.zig");
 
 pub fn account(self: *Client) Account {
+    return .{ .client = self };
+}
+
+pub const Folder = @import("api/Folder.zig");
+
+pub fn folder(self: *Client) Folder {
     return .{ .client = self };
 }
 

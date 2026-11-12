@@ -10,3 +10,30 @@ pub const AccountInfo = struct {
     /// Bytes of cloud storage used.
     space_used: f64 = 0,
 };
+
+/// GET /folder/list
+pub const FolderList = struct {
+    name: []const u8 = "",
+    /// Null/absent for the root folder.
+    parent_id: ?[]const u8 = null,
+    folder_id: ?[]const u8 = null,
+    breadcrumbs: []const Breadcrumb = &.{},
+    content: []const Content = &.{},
+};
+
+pub const Breadcrumb = struct {
+    id: ?[]const u8 = null,
+    name: []const u8,
+};
+
+pub const Content = struct {
+    id: []const u8,
+    name: []const u8,
+    /// "file" or "folder".
+    type: []const u8,
+    created_at: i64 = 0,
+    // File-only fields; folders leave them out, so each needs a default.
+    size: ?u64 = null,
+    mime_type: ?[]const u8 = null,
+    link: ?[]const u8 = null,
+};

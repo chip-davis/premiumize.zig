@@ -6,4 +6,5 @@ test {
     @import("std").testing.refAllDecls(@This());
     _ = Client;
     _ = @import("api/Account.zig");
+    _ = @import("api/Folder.zig");
 }
