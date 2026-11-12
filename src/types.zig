@@ -52,3 +52,12 @@ pub const FolderPaste = struct {};
 
 /// POST /folder/uploadinfo
 pub const FolderUploadInfo = struct { token: []const u8, url: []const u8 };
+
+/// GET /folder/search
+/// Folder entries always carry id, name, type, created_at.
+/// File entries additionally carry size (bytes), mime_type, and link (download URL).
+/// created_at is a Unix timestamp.
+pub const FolderSearch = struct {
+    name: []const u8 = "",
+    content: []const Content = &.{},
+};

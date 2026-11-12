@@ -108,3 +108,14 @@ pub fn uploadinfo(self: Folder, opts: FolderUploadInfoOptions) !std.json.Parsed(
 
     return self.client.post(types.FolderUploadInfo, endpoints.folder.uploadinfo, buf[0..n]);
 }
+
+pub const FolderSearchOptions = struct {
+    q: []const u8, // Search query string.
+};
+
+/// GET /folder/search : Searches for matching files and folders across the user's storage.
+pub fn search(self: Folder, opts: FolderSearchOptions) !std.json.Parsed(types.FolderSearch) {
+    return self.client.get(types.FolderSearch, endpoints.folder.search, &.{
+        .{ .name = "q", .value = opts.q },
+    });
+}

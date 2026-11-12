@@ -11,4 +11,5 @@ pub const folder = struct {
     pub const paste = "/folder/paste";
     pub const delete = "/folder/delete";
     pub const uploadinfo = "/folder/uploadinfo";
+    pub const search = "/folder/search";
 };
