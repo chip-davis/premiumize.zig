@@ -16,3 +16,14 @@ pub const ItemDetailsOptions = struct {
 pub fn details(self: Item, opts: ItemDetailsOptions) std.json.Parsed(types.ItemDetails) {
     return self.client.get(types.ItemDetails, endpoints.item.details, &.{.{ .name = "id", .value = opts.id }});
 }
+
+pub const ItemRenameOptions = struct {
+    id: []const u8,
+    name: []const u8,
+};
+
+/// POST /item/rename
+/// Renames a file.
+pub fn rename(self: Item, opts: ItemRenameOptions) std.json.Parsed(types.ItemRename) {
+    return self.client.post(types.ItemRename, endpoints.item.rename, &.{ .{ .name = "id", .value = opts.id }, .{ .name = "name", .value = opts.value } });
+}
