@@ -152,3 +152,8 @@ pub const ServicesList = struct {
     aliases: std.json.ArrayHashMap([]const []const u8) = .{}, // extra domains per service; best-effort
     regexpatterns: std.json.ArrayHashMap([]const []const u8) = .{}, // URL regexes per service; best-effort
 };
+
+/// POST /zip/generate
+pub const ZipGenerate = struct {
+    location: []const u8, // download URL; the filename is the last path segment
+};

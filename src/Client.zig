@@ -176,6 +176,12 @@ pub fn services(self: *Client) Services {
     return .{ .client = self };
 }
 
+pub const Zip = @import("api/Zip.zig");
+
+pub fn zip(self: *Client) Zip {
+    return .{ .client = self };
+}
+
 test formEncode {
     const a = std.testing.allocator;
     const s = try formEncode(a, &.{

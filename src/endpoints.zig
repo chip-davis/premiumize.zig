@@ -37,3 +37,7 @@ pub const cache = struct {
 pub const services = struct {
     pub const list = "/services/list";
 };
+
+pub const zip = struct {
+    pub const generate = "/zip/generate";
+};
