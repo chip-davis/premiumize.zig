@@ -54,6 +54,17 @@ pub fn list(self: Transfer) !std.json.Parsed(types.TransferList) {
     return self.client.get(types.TransferList, endpoints.transfer.list, &.{});
 }
 
+pub const TransferGetOptions = struct { id: []const u8 };
+
+/// Helper function wrapping list()
+pub fn get(self: Transfer, opts: TransferGetOptions) !?std.json.Parsed(types.TransferEntry) {
+    const res = try self.list();
+    for (res.value.transfers) |transfer| {
+        if (std.mem.eql(u8, transfer.id, opts.id)) return .{ .arena = res.arena, .value = transfer };
+    }
+    res.deinit();
+    return null;
+}
 pub const TransferRetryOptions = struct {
     id: []const u8, // Transfer ID. Required.
 };
@@ -153,6 +164,64 @@ test "transfer/list" {
     try std.testing.expectEqual(@as(?[]const u8, null), t[0].folder_id);
     try std.testing.expectEqualStrings("f1", t[1].file_id.?);
     try std.testing.expectEqual(@as(?[]const u8, null), t[2].message);
+}
+
+test "transfer get" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"success","transfers":[
+        \\  {"id":"t1","name":"video.mkv","status":"running","progress":0.42,"message":"Downloading","folder_id":null,"file_id":null,"created_at":1700000000},
+        \\  {"id":"t2","name":"movie.mkv","status":"finished","progress":null,"message":null,"folder_id":"d1","file_id":"f1","created_at":1700000000}
+        \\]}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    const res = (try c.transfer().get(.{ .id = "t2" })).?;
+    defer res.deinit();
+
+    try srv.expectGet("GET /api/transfer/list?apikey=test-key");
+    try std.testing.expectEqualStrings("t2", res.value.id);
+    try std.testing.expectEqualStrings("movie.mkv", res.value.name);
+    try std.testing.expectEqual(types.TransferStatus.finished, res.value.status);
+    try std.testing.expectEqualStrings("d1", res.value.folder_id.?);
+}
+
+test "transfer get not found" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"success","transfers":[
+        \\  {"id":"t1","name":"video.mkv","status":"running","progress":0.42,"message":null,"folder_id":null,"file_id":null,"created_at":1700000000}
+        \\]}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    // testing.allocator flags a leak if the list isn't freed on this path.
+    try std.testing.expectEqual(null, try c.transfer().get(.{ .id = "nope" }));
+}
+
+test "transfer get empty list" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"success","transfers":[]}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    try std.testing.expectEqual(null, try c.transfer().get(.{ .id = "t1" }));
+}
+
+test "transfer get api error" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"error","message":"Not logged in.","code":"authentication_failed"}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    try std.testing.expectError(error.ApiError, c.transfer().get(.{ .id = "t1" }));
+    try std.testing.expectEqual(Client.ErrorCode.authentication_failed, c.lastErrorCode().?);
 }
 
 test "transfer/retry" {

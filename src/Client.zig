@@ -12,7 +12,7 @@ pub const Auth = union(enum) { api_key: []const u8, access_token: []const u8 };
 
 pub const Options = struct { auth: Auth, base_url: []const u8 = default_base_url, timeout_ms: u64 = 30_000 };
 
-pub const Error = error{ ApiError, BadStatus, InvalidResponse, InvalidArgument };
+pub const Error = error{ ApiError, BadStatus, InvalidResponse, InvalidArgument, Timeout, TransferNotFound };
 
 /// The `code` field of an error response. Read it with `lastErrorCode()` after `error.ApiError`.
 pub const ErrorCode = enum {
@@ -48,6 +48,7 @@ pub const ErrorCode = enum {
 };
 
 allocator: Allocator,
+Io: std.Io,
 http: httpx.Client,
 options: Options,
 err_buf: [256]u8 = undefined,
@@ -57,6 +58,7 @@ err_code: ?ErrorCode = null,
 pub fn init(allocator: Allocator, io: std.Io, options: Options) Client {
     return .{
         .allocator = allocator,
+        .Io = io,
         .http = httpx.Client.init(allocator, io, .{}),
         .options = options,
     };
@@ -254,7 +256,7 @@ pub fn zip(self: *Client) Zip {
 }
 
 test "decode maps error codes" {
-    var c: Client = .{ .allocator = std.testing.allocator, .http = undefined, .options = .{ .auth = .{ .api_key = "" } } };
+    var c: Client = .{ .allocator = std.testing.allocator, .Io = std.testing.io, .http = undefined, .options = .{ .auth = .{ .api_key = "" } } };
     const T = struct {};
 
     try std.testing.expectError(error.ApiError, c.decode(T, 200,
@@ -364,7 +366,7 @@ test "error state resets on the next call" {
 }
 
 test "parse errors report where the body stopped matching" {
-    var c: Client = .{ .allocator = std.testing.allocator, .http = undefined, .options = .{ .auth = .{ .api_key = "" } } };
+    var c: Client = .{ .allocator = std.testing.allocator, .Io = std.testing.io, .http = undefined, .options = .{ .auth = .{ .api_key = "" } } };
     const T = struct { name: []const u8, size: u64 };
     try std.testing.expectError(error.InvalidResponse, c.decode(T, 200,
         \\{"status":"success","name":null,"size":1}
