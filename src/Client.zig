@@ -153,11 +153,30 @@ fn decode(self: *Client, comptime T: type, status: u16, body: []const u8) !std.j
     }) catch |e| switch (e) {
         error.OutOfMemory => e,
         else => {
-            // e.g. "MissingField", "Overflow", "UnexpectedToken"
-            self.setError(@errorName(e));
+            // e.g. "UnexpectedToken at byte 123: ...\"progress\":null..."
+            self.setParseError(T, e, body);
             return error.InvalidResponse;
         },
     };
+}
+
+/// Re-parses with diagnostics enabled to report where the body stopped matching T.
+fn setParseError(self: *Client, comptime T: type, err: anyerror, body: []const u8) void {
+    var diag: std.json.Scanner.Diagnostics = .{};
+    var scanner = std.json.Scanner.initCompleteInput(self.allocator, body);
+    defer scanner.deinit();
+    scanner.enableDiagnostics(&diag);
+    if (std.json.parseFromTokenSource(T, self.allocator, &scanner, .{
+        .ignore_unknown_fields = true,
+        .allocate = .alloc_always,
+    })) |p| p.deinit() else |_| {}
+
+    const off: usize = @intCast(@min(diag.getByteOffset(), body.len));
+    const snippet = body[off -| 60..@min(body.len, off + 20)];
+    const msg = std.fmt.bufPrint(&self.err_buf, "{s} at byte {d}: ...{s}...", .{ @errorName(err), off, snippet }) catch {
+        return self.setError(@errorName(err));
+    };
+    self.err_len = msg.len;
 }
 
 fn setError(self: *Client, msg: []const u8) void {
@@ -305,7 +324,7 @@ test "response that doesn't match the type is InvalidResponse" {
 
     // AccountInfo requires customer_id.
     try std.testing.expectError(error.InvalidResponse, c.account().info());
-    try std.testing.expectEqualStrings("MissingField", c.lastError().?);
+    try std.testing.expect(std.mem.startsWith(u8, c.lastError().?, "MissingField"));
 }
 
 test "http 500 is BadStatus with unknown_error" {
@@ -336,4 +355,15 @@ test "error state resets on the next call" {
     defer res.deinit();
     try std.testing.expectEqual(@as(?ErrorCode, null), c.lastErrorCode());
     try std.testing.expectEqual(@as(?[]const u8, null), c.lastError());
+}
+
+test "parse errors report where the body stopped matching" {
+    var c: Client = .{ .allocator = std.testing.allocator, .http = undefined, .options = .{ .auth = .{ .api_key = "" } } };
+    const T = struct { name: []const u8, size: u64 };
+    try std.testing.expectError(error.InvalidResponse, c.decode(T, 200,
+        \\{"status":"success","name":null,"size":1}
+    ));
+    const msg = c.lastError().?;
+    try std.testing.expect(std.mem.startsWith(u8, msg, "UnexpectedToken at byte "));
+    try std.testing.expect(std.mem.indexOf(u8, msg, "\"name\":null") != null);
 }

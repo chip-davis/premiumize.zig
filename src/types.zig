@@ -104,8 +104,8 @@ pub const TransferEntry = struct {
     id: []const u8,
     name: []const u8,
     status: []const u8, // one of queued, running, finished, seeding, error
-    progress: f64, // 0.0 to 1.0
-    message: []const u8 = "",
+    progress: ?f64 = null, // 0.0 to 1.0; docs say always 1.0 when finished, but the API can send null
+    message: ?[]const u8 = null, // docs say "" when empty, but the API sends null
     folder_id: ?[]const u8 = null, // null until finished/seeding, or if routed to an external cloud
     file_id: ?[]const u8 = null, // null until finished, for multi-file sources, or if routed to an external cloud
     created_at: i64,

@@ -130,8 +130,9 @@ test "transfer/list" {
         \\{"status":"success","transfers":[
         \\  {"id":"t1","name":"video.mkv","status":"running","progress":0.42,"message":"Downloading from server",
         \\   "folder_id":null,"file_id":null,"created_at":1700000000,"src":"https://old","other_cloud_id":null},
-        \\  {"id":"t2","name":"movie.mkv","status":"finished","progress":1.0,"message":"",
-        \\   "folder_id":"d1","file_id":"f1","created_at":1700000000}
+        \\  {"id":"t2","name":"movie.mkv","status":"finished","progress":null,"message":"",
+        \\   "folder_id":"d1","file_id":"f1","created_at":1700000000},
+        \\  {"id":"t3","name":"q","status":"queued","progress":0,"message":null,"folder_id":null,"file_id":null,"created_at":1700000000}
         \\]}
     );
     defer srv.deinit();
@@ -143,11 +144,13 @@ test "transfer/list" {
 
     try srv.expectGet("GET /api/transfer/list?apikey=test-key");
     const t = res.value.transfers;
-    try std.testing.expectEqual(@as(usize, 2), t.len);
+    try std.testing.expectEqual(@as(usize, 3), t.len);
     try std.testing.expectEqualStrings("running", t[0].status);
-    try std.testing.expectEqual(@as(f64, 0.42), t[0].progress);
+    try std.testing.expectEqual(@as(?f64, 0.42), t[0].progress);
+    try std.testing.expectEqual(@as(?f64, null), t[1].progress);
     try std.testing.expectEqual(@as(?[]const u8, null), t[0].folder_id);
     try std.testing.expectEqualStrings("f1", t[1].file_id.?);
+    try std.testing.expectEqual(@as(?[]const u8, null), t[2].message);
 }
 
 test "transfer/retry" {
