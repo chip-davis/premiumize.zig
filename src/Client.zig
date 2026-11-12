@@ -12,7 +12,7 @@ pub const Auth = union(enum) { api_key: []const u8, access_token: []const u8 };
 
 pub const Options = struct { auth: Auth, base_url: []const u8 = default_base_url, timeout_ms: u64 = 30_000 };
 
-pub const Error = error{ ApiError, BadStatus, InvalidResponse };
+pub const Error = error{ ApiError, BadStatus, InvalidResponse, InvalidArgument };
 
 allocator: Allocator,
 http: httpx.Client,

@@ -43,3 +43,9 @@ pub const FolderCreate = struct { id: []const u8 };
 
 /// POST /folder/rename
 pub const FolderRename = struct {};
+
+/// POST /folder/delete
+pub const FolderDelete = struct {};
+
+/// POST /folder/paste
+pub const FolderPaste = struct {};
