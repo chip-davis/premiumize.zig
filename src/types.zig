@@ -84,3 +84,6 @@ pub const ItemFile = struct {
     created_at: i64,
     mime_type: ?[]const u8 = null,
 };
+
+/// POST /transfer/create
+pub const TransferCreate = struct { id: []const u8, name: []const u8 };
