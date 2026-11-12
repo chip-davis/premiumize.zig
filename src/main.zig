@@ -136,7 +136,7 @@ pub fn main(init: std.process.Init) !void {
         run.ok("folder/list (scratch)", "{d} entries, {d} breadcrumbs", .{ r.value.content.len, r.value.breadcrumbs.len });
     } else |e| run.fail("folder/list (scratch)", e);
 
-    if (pm.folder().uploadinfo(.{ .id = scratch })) |r| {
+    if (pm.folder().uploadInfo(.{ .id = scratch })) |r| {
         defer r.deinit();
         run.ok("folder/uploadinfo", "got upload url ({d} chars)", .{r.value.url.len});
     } else |e| run.fail("folder/uploadinfo", e);
@@ -150,7 +150,7 @@ pub fn main(init: std.process.Init) !void {
         run.ok("cache/check", "cached: {}", .{hit});
     } else |e| run.fail("cache/check", e);
 
-    if (pm.transfer().directdl(.{ .src = src })) |r| {
+    if (pm.transfer().directDl(.{ .src = src })) |r| {
         defer r.deinit();
         run.ok("transfer/directdl", "{d} file(s)", .{r.value.content.len});
     } else |e| run.fail("transfer/directdl", e);
@@ -180,7 +180,7 @@ pub fn main(init: std.process.Init) !void {
     // ── Items (files the transfer put in the scratch folder) ───────────
     std.debug.print("\nitems\n", .{});
 
-    const file_id: ?[]const u8 = if (pm.item().listall()) |r| blk: {
+    const file_id: ?[]const u8 = if (pm.item().listAll()) |r| blk: {
         defer r.deinit();
         var found: ?[]const u8 = null;
         for (r.value.files) |f| {
@@ -246,7 +246,7 @@ pub fn main(init: std.process.Init) !void {
     } else run.skip("transfer/delete", "no transfer");
 
     if (clear_finished) {
-        if (pm.transfer().clearfinished()) {
+        if (pm.transfer().clearFinished()) {
             run.ok("transfer/clearfinished", "cleared", .{});
         } else |e| run.fail("transfer/clearfinished", e);
     } else run.skip("transfer/clearfinished", "pass --clear-finished to run (clears ALL finished transfers)");

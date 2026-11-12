@@ -41,7 +41,7 @@ pub fn delete(self: Item, opts: ItemDeleteOptions) !void {
 /// GET /item/listall : Returns a flat list of every file the user owns, with full path.
 /// Parameters: None.
 /// Each files entry has id, name, path (the slash-joined path from root), size (bytes), created_at (Unix timestamp), and mime_type.
-pub fn listall(self: Item) !std.json.Parsed(types.ItemListAll) {
+pub fn listAll(self: Item) !std.json.Parsed(types.ItemListAll) {
     return self.client.get(types.ItemListAll, endpoints.item.listall, &.{});
 }
 
@@ -100,7 +100,7 @@ test "item/listall" {
     var c = srv.client();
     defer c.deinit();
 
-    const res = try c.item().listall();
+    const res = try c.item().listAll();
     defer res.deinit();
 
     try srv.expectGet("GET /api/item/listall?apikey=test-key");

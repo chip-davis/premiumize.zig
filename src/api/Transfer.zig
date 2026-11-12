@@ -37,14 +37,14 @@ pub fn create(self: Transfer, opts: TransferCreateOptions) !std.json.Parsed(type
     return self.client.post(types.TransferCreate, endpoints.transfer.create, buf[0..n]);
 }
 
-pub const TransferDirectdlOptions = struct {
+pub const TransferDirectDlOptions = struct {
     src: []const u8, // Transfer source URL
 };
 
 /// POST /transfer/directdl
 /// Generates direct download links from a transfer source without storing it in your cloud. The content array can hold one or many file entries
 /// — a single hoster URL typically resolves to one file, while a magnet or torrent source resolves to every file inside the archive.
-pub fn directdl(self: Transfer, opts: TransferDirectdlOptions) !std.json.Parsed(types.TransferDirectDl) {
+pub fn directDl(self: Transfer, opts: TransferDirectDlOptions) !std.json.Parsed(types.TransferDirectDl) {
     return self.client.post(types.TransferDirectDl, endpoints.transfer.directdl, &.{.{ .name = "src", .value = opts.src }});
 }
 
@@ -71,7 +71,7 @@ pub fn delete(self: Transfer, opts: TransferDeleteOptions) !void {
 }
 
 /// POST /transfer/clearfinished : Removes all finished transfers from the list.
-pub fn clearfinished(self: Transfer) !void {
+pub fn clearFinished(self: Transfer) !void {
     return self.client.postOk(endpoints.transfer.clearfinished, &.{});
 }
 
@@ -116,7 +116,7 @@ test "transfer/directdl" {
     var c = srv.client();
     defer c.deinit();
 
-    const res = try c.transfer().directdl(.{ .src = "https://host/file" });
+    const res = try c.transfer().directDl(.{ .src = "https://host/file" });
     defer res.deinit();
 
     try srv.expectPost("POST /api/transfer/directdl?apikey=test-key", "src=https%3A%2F%2Fhost%2Ffile");
@@ -189,7 +189,7 @@ test "transfer/clearfinished" {
     var c = srv.client();
     defer c.deinit();
 
-    try c.transfer().clearfinished();
+    try c.transfer().clearFinished();
 
     try srv.expectPost("POST /api/transfer/clearfinished?apikey=test-key", "");
 }

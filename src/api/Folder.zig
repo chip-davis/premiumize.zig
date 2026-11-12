@@ -98,7 +98,7 @@ pub const FolderUploadInfoOptions = struct {
 
 /// POST /folder/uploadinfo : Returns an upload token and URL for direct file upload to a folder.
 /// Two-step flow: call this endpoint to get a one-shot upload url and token, then POST your file to that url.
-pub fn uploadinfo(self: Folder, opts: FolderUploadInfoOptions) !std.json.Parsed(types.FolderUploadInfo) {
+pub fn uploadInfo(self: Folder, opts: FolderUploadInfoOptions) !std.json.Parsed(types.FolderUploadInfo) {
     var buf: [1]Client.Param = undefined;
     var n: usize = 0;
 
@@ -245,7 +245,7 @@ test "folder/uploadinfo" {
     var c = srv.client();
     defer c.deinit();
 
-    const res = try c.folder().uploadinfo(.{ .id = "d1" });
+    const res = try c.folder().uploadInfo(.{ .id = "d1" });
     defer res.deinit();
 
     try srv.expectPost("POST /api/folder/uploadinfo?apikey=test-key", "id=d1");
@@ -261,7 +261,7 @@ test "folder/uploadinfo to root" {
     var c = srv.client();
     defer c.deinit();
 
-    const res = try c.folder().uploadinfo(.{});
+    const res = try c.folder().uploadInfo(.{});
     defer res.deinit();
 
     try srv.expectPost("POST /api/folder/uploadinfo?apikey=test-key", "");
