@@ -29,8 +29,7 @@ pub const Breadcrumb = struct {
 pub const Content = struct {
     id: []const u8,
     name: []const u8,
-    /// "file" or "folder".
-    type: []const u8,
+    type: ContentType,
     created_at: i64 = 0,
     // File-only fields; folders leave them out, so each needs a default.
     size: ?u64 = null,
@@ -40,15 +39,6 @@ pub const Content = struct {
 
 /// POST /folder/create
 pub const FolderCreate = struct { id: []const u8 };
-
-/// POST /folder/rename
-pub const FolderRename = struct {};
-
-/// POST /folder/delete
-pub const FolderDelete = struct {};
-
-/// POST /folder/paste
-pub const FolderPaste = struct {};
 
 /// POST /folder/uploadinfo
 pub const FolderUploadInfo = struct { token: []const u8, url: []const u8 };
@@ -64,12 +54,6 @@ pub const FolderSearch = struct {
 
 /// GET /item/details
 pub const ItemDetails = struct { id: []const u8, name: []const u8, size: u64, created_at: i64, folder_id: []const u8, mime_type: []const u8, link: []const u8 };
-
-/// POST /item/rename
-pub const ItemRename = struct {};
-
-/// POST /item/delete
-pub const ItemDelete = struct {};
 
 /// GET /item/listall
 pub const ItemListAll = struct {
@@ -103,22 +87,13 @@ pub const TransferList = struct {
 pub const TransferEntry = struct {
     id: []const u8,
     name: []const u8,
-    status: []const u8, // one of queued, running, finished, seeding, error
+    status: TransferStatus,
     progress: ?f64 = null, // 0.0 to 1.0; docs say always 1.0 when finished, but the API can send null
     message: ?[]const u8 = null, // docs say "" when empty, but the API sends null
     folder_id: ?[]const u8 = null, // null until finished/seeding, or if routed to an external cloud
     file_id: ?[]const u8 = null, // null until finished, for multi-file sources, or if routed to an external cloud
     created_at: i64,
 };
-
-/// POST /transfer/retry
-pub const TransferRetry = struct {};
-
-/// POST /transfer/delete
-pub const TransferDelete = struct {};
-
-/// POST /transfer/clearfinished
-pub const TransferClearFinished = struct {};
 
 /// POST /cache/check
 pub const CacheCheck = struct {
@@ -157,3 +132,53 @@ pub const ServicesList = struct {
 pub const ZipGenerate = struct {
     location: []const u8, // download URL; the filename is the last path segment
 };
+
+pub const ContentType = enum {
+    file,
+    folder,
+    /// A value this library doesn't know yet.
+    unknown,
+
+    pub fn jsonParse(a: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !ContentType {
+        return parseEnumOrUnknown(ContentType, a, source, options);
+    }
+};
+
+pub const TransferStatus = enum {
+    queued,
+    running,
+    finished,
+    /// A torrent finished downloading and is seeding; the files are already in the cloud.
+    seeding,
+    @"error",
+    /// A value this library doesn't know yet, or null.
+    unknown,
+
+    pub fn jsonParse(a: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !TransferStatus {
+        return parseEnumOrUnknown(TransferStatus, a, source, options);
+    }
+};
+
+/// Like std.json's enum parsing, but maps unrecognised strings (and null) to `.unknown`
+/// instead of failing the whole response, since the API doesn't always match its docs.
+fn parseEnumOrUnknown(comptime E: type, a: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !E {
+    _ = options;
+    return switch (try source.nextAlloc(a, .alloc_if_needed)) {
+        .string, .allocated_string => |s| std.meta.stringToEnum(E, s) orelse .unknown,
+        .null => .unknown,
+        else => error.UnexpectedToken,
+    };
+}
+
+test "enums map unknown values to .unknown" {
+    const T = struct { a: TransferStatus, b: TransferStatus, c: TransferStatus, d: ContentType, e: ContentType };
+    const p = try std.json.parseFromSlice(T, std.testing.allocator,
+        \\{"a":"error","b":"paused","c":null,"d":"folder","e":"symlink"}
+    , .{ .allocate = .alloc_always });
+    defer p.deinit();
+    try std.testing.expectEqual(TransferStatus.@"error", p.value.a);
+    try std.testing.expectEqual(TransferStatus.unknown, p.value.b);
+    try std.testing.expectEqual(TransferStatus.unknown, p.value.c);
+    try std.testing.expectEqual(ContentType.folder, p.value.d);
+    try std.testing.expectEqual(ContentType.unknown, p.value.e);
+}

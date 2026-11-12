@@ -58,21 +58,21 @@ pub const TransferRetryOptions = struct {
     id: []const u8, // Transfer ID. Required.
 };
 /// POST /transfer/retry : Re-queues a failed transfer.
-pub fn retry(self: Transfer, opts: TransferRetryOptions) !std.json.Parsed(types.TransferRetry) {
-    return self.client.post(types.TransferRetry, endpoints.transfer.retry, &.{.{ .name = "id", .value = opts.id }});
+pub fn retry(self: Transfer, opts: TransferRetryOptions) !void {
+    return self.client.postOk(endpoints.transfer.retry, &.{.{ .name = "id", .value = opts.id }});
 }
 
 pub const TransferDeleteOptions = struct {
     id: []const u8, // Transfer ID. Required.
 };
 /// POST /transfer/delete : Deletes a transfer record.
-pub fn delete(self: Transfer, opts: TransferDeleteOptions) !std.json.Parsed(types.TransferDelete) {
-    return self.client.post(types.TransferDelete, endpoints.transfer.delete, &.{.{ .name = "id", .value = opts.id }});
+pub fn delete(self: Transfer, opts: TransferDeleteOptions) !void {
+    return self.client.postOk(endpoints.transfer.delete, &.{.{ .name = "id", .value = opts.id }});
 }
 
 /// POST /transfer/clearfinished : Removes all finished transfers from the list.
-pub fn clearfinished(self: Transfer) !std.json.Parsed(types.TransferClearFinished) {
-    return self.client.post(types.TransferClearFinished, endpoints.transfer.clearfinished, &.{});
+pub fn clearfinished(self: Transfer) !void {
+    return self.client.postOk(endpoints.transfer.clearfinished, &.{});
 }
 
 test "transfer/create" {
@@ -145,7 +145,9 @@ test "transfer/list" {
     try srv.expectGet("GET /api/transfer/list?apikey=test-key");
     const t = res.value.transfers;
     try std.testing.expectEqual(@as(usize, 3), t.len);
-    try std.testing.expectEqualStrings("running", t[0].status);
+    try std.testing.expectEqual(types.TransferStatus.running, t[0].status);
+    try std.testing.expectEqual(types.TransferStatus.finished, t[1].status);
+    try std.testing.expectEqual(types.TransferStatus.queued, t[2].status);
     try std.testing.expectEqual(@as(?f64, 0.42), t[0].progress);
     try std.testing.expectEqual(@as(?f64, null), t[1].progress);
     try std.testing.expectEqual(@as(?[]const u8, null), t[0].folder_id);
@@ -161,8 +163,7 @@ test "transfer/retry" {
     var c = srv.client();
     defer c.deinit();
 
-    const res = try c.transfer().retry(.{ .id = "t1" });
-    defer res.deinit();
+    try c.transfer().retry(.{ .id = "t1" });
 
     try srv.expectPost("POST /api/transfer/retry?apikey=test-key", "id=t1");
 }
@@ -175,8 +176,7 @@ test "transfer/delete" {
     var c = srv.client();
     defer c.deinit();
 
-    const res = try c.transfer().delete(.{ .id = "t1" });
-    defer res.deinit();
+    try c.transfer().delete(.{ .id = "t1" });
 
     try srv.expectPost("POST /api/transfer/delete?apikey=test-key", "id=t1");
 }
@@ -189,8 +189,7 @@ test "transfer/clearfinished" {
     var c = srv.client();
     defer c.deinit();
 
-    const res = try c.transfer().clearfinished();
-    defer res.deinit();
+    try c.transfer().clearfinished();
 
     try srv.expectPost("POST /api/transfer/clearfinished?apikey=test-key", "");
 }

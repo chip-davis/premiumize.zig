@@ -10,6 +10,7 @@
 const std = @import("std");
 const premiumize = @import("premiumize_zig");
 const Client = premiumize.Client;
+const TransferStatus = premiumize.types.TransferStatus;
 
 const default_src = "magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny";
 const transfer_timeout_s = 180;
@@ -109,8 +110,7 @@ pub fn main(init: std.process.Init) !void {
     // Always clean up the scratch folder (and everything in it).
     defer {
         std.debug.print("\ncleanup\n", .{});
-        if (pm.folder().delete(.{ .id = scratch })) |r| {
-            r.deinit();
+        if (pm.folder().delete(.{ .id = scratch })) {
             run.ok("folder/delete", "removed {s}", .{scratch_name});
         } else |e| run.fail("folder/delete", e);
         finish(&run);
@@ -126,8 +126,7 @@ pub fn main(init: std.process.Init) !void {
     };
 
     if (sub_id) |sub| {
-        if (pm.folder().rename(.{ .id = sub, .name = "sub renamed" })) |r| {
-            r.deinit();
+        if (pm.folder().rename(.{ .id = sub, .name = "sub renamed" })) {
             run.ok("folder/rename", "sub -> \"sub renamed\"", .{});
         } else |e| run.fail("folder/rename", e);
     } else run.skip("folder/rename", "no child folder");
@@ -167,12 +166,11 @@ pub fn main(init: std.process.Init) !void {
 
     if (transfer_id) |tid| {
         const final = try waitForTransfer(&pm, &run, io, tid);
-        if (pm.transfer().retry(.{ .id = tid })) |r| {
-            r.deinit();
+        if (pm.transfer().retry(.{ .id = tid })) {
             run.ok("transfer/retry", "re-queued", .{});
         } else |e| {
             // Retry only applies to failed transfers; a finished one is rejected.
-            if (std.mem.eql(u8, final, "error")) run.fail("transfer/retry", e) else run.expectedError("transfer/retry", e);
+            if (final == .@"error") run.fail("transfer/retry", e) else run.expectedError("transfer/retry", e);
         }
     } else {
         run.skip("transfer/list", "no transfer");
@@ -205,8 +203,7 @@ pub fn main(init: std.process.Init) !void {
         } else |e| run.fail("item/details", e);
 
         const new_name = try std.fmt.allocPrint(keep, "{s}-file", .{scratch_name});
-        if (pm.item().rename(.{ .id = fid, .name = new_name })) |r| {
-            r.deinit();
+        if (pm.item().rename(.{ .id = fid, .name = new_name })) {
             run.ok("item/rename", "-> {s}", .{new_name});
         } else |e| run.fail("item/rename", e);
 
@@ -216,8 +213,7 @@ pub fn main(init: std.process.Init) !void {
         } else |e| run.fail("folder/search", e);
 
         if (sub_id) |sub| {
-            if (pm.folder().paste(.{ .id = sub, .files = &.{fid} })) |r| {
-                r.deinit();
+            if (pm.folder().paste(.{ .id = sub, .files = &.{fid} })) {
                 run.ok("folder/paste", "moved file into child folder", .{});
             } else |e| run.fail("folder/paste", e);
         } else run.skip("folder/paste", "no child folder");
@@ -227,8 +223,7 @@ pub fn main(init: std.process.Init) !void {
             run.ok("zip/generate", "{s}", .{std.fs.path.basename(r.value.location)});
         } else |e| run.fail("zip/generate", e);
 
-        if (pm.item().delete(.{ .id = fid })) |r| {
-            r.deinit();
+        if (pm.item().delete(.{ .id = fid })) {
             run.ok("item/delete", "removed test file", .{});
         } else |e| run.fail("item/delete", e);
     } else {
@@ -245,23 +240,21 @@ pub fn main(init: std.process.Init) !void {
     }
 
     if (transfer_id) |tid| {
-        if (pm.transfer().delete(.{ .id = tid })) |r| {
-            r.deinit();
+        if (pm.transfer().delete(.{ .id = tid })) {
             run.ok("transfer/delete", "removed {s}", .{tid});
         } else |e| run.fail("transfer/delete", e);
     } else run.skip("transfer/delete", "no transfer");
 
     if (clear_finished) {
-        if (pm.transfer().clearfinished()) |r| {
-            r.deinit();
+        if (pm.transfer().clearfinished()) {
             run.ok("transfer/clearfinished", "cleared", .{});
         } else |e| run.fail("transfer/clearfinished", e);
     } else run.skip("transfer/clearfinished", "pass --clear-finished to run (clears ALL finished transfers)");
 }
 
 /// Polls /transfer/list until the transfer leaves queued/running. Returns its last status.
-fn waitForTransfer(pm: *Client, run: *Run, io: std.Io, tid: []const u8) ![]const u8 {
-    var status: []const u8 = "unknown";
+fn waitForTransfer(pm: *Client, run: *Run, io: std.Io, tid: []const u8) !TransferStatus {
+    var status: TransferStatus = .unknown;
     var waited: i64 = 0;
     var polls: usize = 0;
     while (waited <= transfer_timeout_s) : (waited += 3) {
@@ -274,12 +267,14 @@ fn waitForTransfer(pm: *Client, run: *Run, io: std.Io, tid: []const u8) ![]const
 
         for (r.value.transfers) |t| {
             if (!std.mem.eql(u8, t.id, tid)) continue;
-            status = if (std.mem.eql(u8, t.status, "finished")) "finished" else if (std.mem.eql(u8, t.status, "seeding")) "seeding" else if (std.mem.eql(u8, t.status, "error")) "error" else "pending";
-            if (!std.mem.eql(u8, status, "pending")) {
-                run.ok("transfer/list", "{s} after {d} poll(s) ({d:.0}%) {s}", .{ t.status, polls, (t.progress orelse 0) * 100, t.message orelse "" });
-                return status;
+            status = t.status;
+            switch (t.status) {
+                .finished, .seeding, .@"error" => {
+                    run.ok("transfer/list", "{t} after {d} poll(s) ({d:.0}%) {s}", .{ t.status, polls, (t.progress orelse 0) * 100, t.message orelse "" });
+                    return status;
+                },
+                .queued, .running, .unknown => std.debug.print("        {s:<24} {t} {d:.0}%\n", .{ "", t.status, (t.progress orelse 0) * 100 }),
             }
-            std.debug.print("        {s:<24} {s} {d:.0}%\n", .{ "", t.status, (t.progress orelse 0) * 100 });
         }
         try io.sleep(.fromSeconds(3), .awake);
     }

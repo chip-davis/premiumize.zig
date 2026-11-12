@@ -25,8 +25,8 @@ pub const ItemRenameOptions = struct {
 
 /// POST /item/rename
 /// Renames a file.
-pub fn rename(self: Item, opts: ItemRenameOptions) !std.json.Parsed(types.ItemRename) {
-    return self.client.post(types.ItemRename, endpoints.item.rename, &.{ .{ .name = "id", .value = opts.id }, .{ .name = "name", .value = opts.name } });
+pub fn rename(self: Item, opts: ItemRenameOptions) !void {
+    return self.client.postOk(endpoints.item.rename, &.{ .{ .name = "id", .value = opts.id }, .{ .name = "name", .value = opts.name } });
 }
 
 pub const ItemDeleteOptions = struct {
@@ -34,8 +34,8 @@ pub const ItemDeleteOptions = struct {
 };
 
 /// POST /item/delete : Deletes a file
-pub fn delete(self: Item, opts: ItemDeleteOptions) !std.json.Parsed(types.ItemDelete) {
-    return self.client.post(types.ItemDelete, endpoints.item.delete, &.{.{ .name = "id", .value = opts.id }});
+pub fn delete(self: Item, opts: ItemDeleteOptions) !void {
+    return self.client.postOk(endpoints.item.delete, &.{.{ .name = "id", .value = opts.id }});
 }
 
 /// GET /item/listall : Returns a flat list of every file the user owns, with full path.
@@ -71,8 +71,7 @@ test "item/rename" {
     var c = srv.client();
     defer c.deinit();
 
-    const res = try c.item().rename(.{ .id = "f1", .name = "new.mkv" });
-    defer res.deinit();
+    try c.item().rename(.{ .id = "f1", .name = "new.mkv" });
 
     try srv.expectPost("POST /api/item/rename?apikey=test-key", "id=f1&name=new.mkv");
 }
@@ -85,8 +84,7 @@ test "item/delete" {
     var c = srv.client();
     defer c.deinit();
 
-    const res = try c.item().delete(.{ .id = "f1" });
-    defer res.deinit();
+    try c.item().delete(.{ .id = "f1" });
 
     try srv.expectPost("POST /api/item/delete?apikey=test-key", "id=f1");
 }

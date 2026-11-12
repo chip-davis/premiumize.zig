@@ -56,16 +56,16 @@ pub const FolderRenameOptions = struct {
     name: []const u8, // New name. Required.
 };
 /// POST /folder/rename : Renames a folder.
-pub fn rename(self: Folder, opts: FolderRenameOptions) !std.json.Parsed(types.FolderRename) {
-    return self.client.post(types.FolderRename, endpoints.folder.rename, &.{ .{ .name = "id", .value = opts.id }, .{ .name = "name", .value = opts.name } });
+pub fn rename(self: Folder, opts: FolderRenameOptions) !void {
+    return self.client.postOk(endpoints.folder.rename, &.{ .{ .name = "id", .value = opts.id }, .{ .name = "name", .value = opts.name } });
 }
 
 pub const FolderDeleteOptions = struct {
     id: []const u8, // Folder ID. Required.
 };
 /// POST /folder/delete : Deletes a folder and its contents.
-pub fn delete(self: Folder, opts: FolderDeleteOptions) !std.json.Parsed(types.FolderDelete) {
-    return self.client.post(types.FolderDelete, endpoints.folder.delete, &.{.{ .name = "id", .value = opts.id }});
+pub fn delete(self: Folder, opts: FolderDeleteOptions) !void {
+    return self.client.postOk(endpoints.folder.delete, &.{.{ .name = "id", .value = opts.id }});
 }
 
 /// At least one of files[] or folders[] is required.
@@ -75,7 +75,7 @@ pub const FolderPasteOptions = struct {
     folders: []const []const u8 = &.{}, // Folder IDs to move. Optional.
 };
 /// POST /folder/paste : Moves files and/or folders into a target folder.
-pub fn paste(self: Folder, opts: FolderPasteOptions) !std.json.Parsed(types.FolderPaste) {
+pub fn paste(self: Folder, opts: FolderPasteOptions) !void {
     if (opts.files.len == 0 and opts.folders.len == 0) return Client.Error.InvalidArgument;
 
     const a = self.client.allocator;
@@ -89,7 +89,7 @@ pub fn paste(self: Folder, opts: FolderPasteOptions) !std.json.Parsed(types.Fold
     for (opts.files) |f| params.appendAssumeCapacity(.{ .name = "files[]", .value = f });
     for (opts.folders) |f| params.appendAssumeCapacity(.{ .name = "folders[]", .value = f });
 
-    return self.client.post(types.FolderPaste, endpoints.folder.paste, params.items);
+    return self.client.postOk(endpoints.folder.paste, params.items);
 }
 
 pub const FolderUploadInfoOptions = struct {
@@ -138,6 +138,8 @@ test "folder/list root" {
     try srv.expectGet("GET /api/folder/list?apikey=test-key");
     try std.testing.expectEqual(@as(?[]const u8, null), res.value.folder_id);
     try std.testing.expectEqual(@as(usize, 2), res.value.content.len);
+    try std.testing.expectEqual(types.ContentType.folder, res.value.content[0].type);
+    try std.testing.expectEqual(types.ContentType.file, res.value.content[1].type);
     try std.testing.expectEqual(@as(?u64, null), res.value.content[0].size);
     try std.testing.expectEqual(@as(?u64, 123456789), res.value.content[1].size);
     try std.testing.expectEqualStrings("https://dl/x", res.value.content[1].link.?);
@@ -199,8 +201,7 @@ test "folder/rename" {
     var c = srv.client();
     defer c.deinit();
 
-    const res = try c.folder().rename(.{ .id = "d1", .name = "New Name" });
-    defer res.deinit();
+    try c.folder().rename(.{ .id = "d1", .name = "New Name" });
 
     try srv.expectPost("POST /api/folder/rename?apikey=test-key", "id=d1&name=New%20Name");
 }
@@ -213,8 +214,7 @@ test "folder/delete" {
     var c = srv.client();
     defer c.deinit();
 
-    const res = try c.folder().delete(.{ .id = "d1" });
-    defer res.deinit();
+    try c.folder().delete(.{ .id = "d1" });
 
     try srv.expectPost("POST /api/folder/delete?apikey=test-key", "id=d1");
 }
@@ -227,8 +227,7 @@ test "folder/paste" {
     var c = srv.client();
     defer c.deinit();
 
-    const res = try c.folder().paste(.{ .id = "t1", .files = &.{ "f1", "f2" }, .folders = &.{"d1"} });
-    defer res.deinit();
+    try c.folder().paste(.{ .id = "t1", .files = &.{ "f1", "f2" }, .folders = &.{"d1"} });
 
     try srv.expectPost("POST /api/folder/paste?apikey=test-key", "id=t1&files%5B%5D=f1&files%5B%5D=f2&folders%5B%5D=d1");
 }

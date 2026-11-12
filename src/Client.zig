@@ -84,6 +84,12 @@ pub fn post(self: *Client, comptime T: type, path: []const u8, params: []const P
     return self.call(T, .POST, path, params);
 }
 
+/// POST for endpoints that only return {"status":"success"}.
+pub fn postOk(self: *Client, path: []const u8, params: []const Param) !void {
+    const res = try self.call(struct {}, .POST, path, params);
+    res.deinit();
+}
+
 fn call(
     self: *Client,
     comptime T: type,
