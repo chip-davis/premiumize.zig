@@ -14,11 +14,45 @@ pub const Options = struct { auth: Auth, base_url: []const u8 = default_base_url
 
 pub const Error = error{ ApiError, BadStatus, InvalidResponse, InvalidArgument };
 
+/// The `code` field of an error response. Read it with `lastErrorCode()` after `error.ApiError`.
+pub const ErrorCode = enum {
+    // Transient — retry now may succeed
+    link_generation_failed,
+    transient_error,
+    // Semi-permanent — wait, raise quota, or upgrade, then retry
+    service_down,
+    service_limit_reached,
+    account_limit_reached,
+    rate_limit_reached,
+    semi_permanent_error,
+    // Permanent — same request will keep failing
+    service_unsupported,
+    not_found,
+    authentication_failed,
+    permission_denied,
+    invalid_request,
+    permanent_error,
+    // Unknown — catastrophic failure outside the normal envelope (HTTP 500). Also used for codes this library doesn't know yet.
+    unknown_error,
+
+    pub const Retry = enum { transient, semi_permanent, permanent, unknown };
+
+    pub fn retry(self: ErrorCode) Retry {
+        return switch (self) {
+            .link_generation_failed, .transient_error => .transient,
+            .service_down, .service_limit_reached, .account_limit_reached, .rate_limit_reached, .semi_permanent_error => .semi_permanent,
+            .service_unsupported, .not_found, .authentication_failed, .permission_denied, .invalid_request, .permanent_error => .permanent,
+            .unknown_error => .unknown,
+        };
+    }
+};
+
 allocator: Allocator,
 http: httpx.Client,
 options: Options,
 err_buf: [256]u8 = undefined,
 err_len: usize = 0,
+err_code: ?ErrorCode = null,
 
 pub fn init(allocator: Allocator, io: std.Io, options: Options) Client {
     return .{
@@ -37,6 +71,11 @@ pub fn lastError(self: *const Client) ?[]const u8 {
     return if (self.err_len == 0) null else self.err_buf[0..self.err_len];
 }
 
+/// Code from the most recent error.ApiError or error.BadStatus. Null when the response had no code. Not thread-safe.
+pub fn lastErrorCode(self: *const Client) ?ErrorCode {
+    return self.err_code;
+}
+
 pub fn get(self: *Client, comptime T: type, path: []const u8, params: []const Param) !std.json.Parsed(T) {
     return self.call(T, .GET, path, params);
 }
@@ -53,6 +92,7 @@ fn call(
     params: []const Param,
 ) !std.json.Parsed(T) {
     self.err_len = 0;
+    self.err_code = null;
     const a = self.allocator;
 
     const url = try std.mem.concat(a, u8, &.{ self.options.base_url, path });
@@ -86,18 +126,24 @@ fn call(
 }
 
 fn decode(self: *Client, comptime T: type, status: u16, body: []const u8) !std.json.Parsed(T) {
-    const Envelope = struct { status: []const u8 = "", message: ?[]const u8 = null };
+    const Envelope = struct { status: []const u8 = "", message: ?[]const u8 = null, code: ?[]const u8 = null };
 
     const env = std.json.parseFromSlice(Envelope, self.allocator, body, .{
         .ignore_unknown_fields = true,
     }) catch |e| switch (e) {
         error.OutOfMemory => return e,
-        else => return if (status / 100 == 2) error.InvalidResponse else error.BadStatus,
+        else => {
+            if (status / 100 == 2) return error.InvalidResponse;
+            // Non-JSON failure outside the normal envelope.
+            self.err_code = .unknown_error;
+            return error.BadStatus;
+        },
     };
     defer env.deinit();
 
     if (!std.mem.eql(u8, env.value.status, "success")) {
         self.setError(env.value.message orelse "unknown error");
+        if (env.value.code) |c| self.err_code = std.meta.stringToEnum(ErrorCode, c) orelse .unknown_error;
         return error.ApiError;
     }
 
@@ -180,6 +226,28 @@ pub const Zip = @import("api/Zip.zig");
 
 pub fn zip(self: *Client) Zip {
     return .{ .client = self };
+}
+
+test "decode maps error codes" {
+    var c: Client = .{ .allocator = std.testing.allocator, .http = undefined, .options = .{ .auth = .{ .api_key = "" } } };
+    const T = struct {};
+
+    try std.testing.expectError(error.ApiError, c.decode(T, 200,
+        \\{"status":"error","code":"rate_limit_reached","message":"slow down"}
+    ));
+    try std.testing.expectEqual(ErrorCode.rate_limit_reached, c.lastErrorCode().?);
+    try std.testing.expectEqual(ErrorCode.Retry.semi_permanent, c.lastErrorCode().?.retry());
+    try std.testing.expectEqualStrings("slow down", c.lastError().?);
+
+    // Unrecognised code falls back to unknown_error.
+    try std.testing.expectError(error.ApiError, c.decode(T, 200,
+        \\{"status":"error","code":"brand_new_code","message":"x"}
+    ));
+    try std.testing.expectEqual(ErrorCode.unknown_error, c.lastErrorCode().?);
+
+    // HTTP 500 with a non-JSON body.
+    try std.testing.expectError(error.BadStatus, c.decode(T, 500, "Internal Server Error"));
+    try std.testing.expectEqual(ErrorCode.unknown_error, c.lastErrorCode().?);
 }
 
 test formEncode {
