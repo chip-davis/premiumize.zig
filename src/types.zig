@@ -52,6 +52,8 @@ pub const FolderSearch = struct {
     content: []const Content = &.{},
 };
 
+pub const WalkFile = struct { id: []const u8, path: []const u8, name: []const u8, size: u64, link: ?[]const u8, mime_type: ?[]const u8 };
+
 /// GET /item/details
 pub const ItemDetails = struct { id: []const u8, name: []const u8, size: u64, created_at: i64, folder_id: []const u8, mime_type: []const u8, link: []const u8 };
 

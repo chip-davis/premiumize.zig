@@ -127,6 +127,60 @@ pub fn search(self: Folder, opts: FolderSearchOptions) !std.json.Parsed(types.Fo
     }, opts.diag);
 }
 
+pub const FolderWalkOptions = struct { id: ?[]const u8 = null, diag: ?*Client.Diagnostics = null };
+
+/// Helper function wrapping list() : Every file under a folder, recursively, sorted by path.
+pub fn walk(self: Folder, opts: FolderWalkOptions) !std.json.Parsed([]const types.WalkFile) {
+    const a = self.client.allocator;
+    const arena = try a.create(std.heap.ArenaAllocator);
+    arena.* = .init(a);
+    errdefer {
+        arena.deinit();
+        a.destroy(arena);
+    }
+    const keep = arena.allocator();
+    const Frame = struct { id: ?[]const u8, prefix: []const u8 };
+
+    var stack: std.ArrayList(Frame) = .empty;
+    try stack.append(keep, .{ .id = opts.id, .prefix = "" });
+
+    var files: std.ArrayList(types.WalkFile) = .empty;
+
+    while (stack.pop()) |frame| {
+        const res = try self.list(.{ .id = frame.id, .diag = opts.diag });
+        defer res.deinit();
+
+        for (res.value.content) |c| {
+            switch (c.type) {
+                .file => {
+                    const path = try std.mem.concat(keep, u8, &.{ frame.prefix, c.name });
+                    try files.append(keep, .{
+                        .id = try keep.dupe(u8, c.id),
+                        .path = path,
+                        .name = path[path.len - c.name.len ..],
+                        .size = c.size orelse 0,
+                        .link = if (c.link) |l| try keep.dupe(u8, l) else null,
+                        .mime_type = if (c.mime_type) |m| try keep.dupe(u8, m) else null,
+                    });
+                },
+                .folder => {
+                    try stack.append(keep, .{
+                        .id = try keep.dupe(u8, c.id),
+                        .prefix = try std.mem.concat(keep, u8, &.{ frame.prefix, c.name, "/" }),
+                    });
+                },
+                .unknown => {},
+            }
+        }
+    }
+    std.mem.sort(types.WalkFile, files.items, {}, byPath);
+    return .{ .arena = arena, .value = files.items };
+}
+
+fn byPath(_: void, x: types.WalkFile, y: types.WalkFile) bool {
+    return std.mem.lessThan(u8, x.path, y.path);
+}
+
 test "folder/list root" {
     const srv = try mock.MockServer.start(std.testing.allocator, 200,
         \\{"status":"success","name":"My Files","content":[
