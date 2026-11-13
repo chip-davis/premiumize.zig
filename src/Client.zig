@@ -146,7 +146,7 @@ fn call(
         .response_writer = &body.writer,
     });
 
-    return self.decode(T, @intFromEnum(res.status), body.written(), diag);
+    return self.decode(T, @backingInt(res.status), body.written(), diag);
 }
 
 fn decode(self: *Client, comptime T: type, status: u16, body: []const u8, diag: ?*Diagnostics) !std.json.Parsed(T) {
