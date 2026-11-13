@@ -25,7 +25,7 @@ pub fn check(self: Cache, opts: CacheCheckOptions) !std.json.Parsed(types.CacheC
 
     for (opts.items) |i| params.appendAssumeCapacity(.{ .name = "items[]", .value = i });
 
-    return self.client.post(types.CacheCheck, endpoints.cache.check, params.items);
+    return self.client.post(types.CacheCheck, endpoints.cache.check, params.items, null);
 }
 
 test "cache/check" {

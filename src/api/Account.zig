@@ -10,7 +10,7 @@ client: *Client,
 
 /// GET /account/info
 pub fn info(self: Account) !std.json.Parsed(types.AccountInfo) {
-    return self.client.get(types.AccountInfo, endpoints.account.info, &.{});
+    return self.client.get(types.AccountInfo, endpoints.account.info, &.{}, null);
 }
 
 test "account/info" {

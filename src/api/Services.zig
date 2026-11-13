@@ -10,7 +10,7 @@ client: *Client,
 
 /// GET /services/list : Returns metadata for every supported service.
 pub fn list(self: Services) !std.json.Parsed(types.ServicesList) {
-    return self.client.get(types.ServicesList, endpoints.services.list, &.{});
+    return self.client.get(types.ServicesList, endpoints.services.list, &.{}, null);
 }
 
 test "services/list" {

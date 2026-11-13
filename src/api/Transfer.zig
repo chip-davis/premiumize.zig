@@ -34,7 +34,7 @@ pub fn create(self: Transfer, opts: TransferCreateOptions) !std.json.Parsed(type
         n += 1;
     }
 
-    return self.client.post(types.TransferCreate, endpoints.transfer.create, buf[0..n]);
+    return self.client.post(types.TransferCreate, endpoints.transfer.create, buf[0..n], null);
 }
 
 pub const TransferDirectDlOptions = struct {
@@ -45,13 +45,13 @@ pub const TransferDirectDlOptions = struct {
 /// Generates direct download links from a transfer source without storing it in your cloud. The content array can hold one or many file entries
 /// — a single hoster URL typically resolves to one file, while a magnet or torrent source resolves to every file inside the archive.
 pub fn directDl(self: Transfer, opts: TransferDirectDlOptions) !std.json.Parsed(types.TransferDirectDl) {
-    return self.client.post(types.TransferDirectDl, endpoints.transfer.directdl, &.{.{ .name = "src", .value = opts.src }});
+    return self.client.post(types.TransferDirectDl, endpoints.transfer.directdl, &.{.{ .name = "src", .value = opts.src }}, null);
 }
 
 /// GET /transfer/list : Returns every transfer the user has created — active, queued, finished, and errored — newest first.
 /// Responses are not cached; expect to poll while a transfer is running.
 pub fn list(self: Transfer) !std.json.Parsed(types.TransferList) {
-    return self.client.get(types.TransferList, endpoints.transfer.list, &.{});
+    return self.client.get(types.TransferList, endpoints.transfer.list, &.{}, null);
 }
 
 pub const TransferGetOptions = struct { id: []const u8 };
@@ -110,7 +110,7 @@ pub const TransferRetryOptions = struct {
 };
 /// POST /transfer/retry : Re-queues a failed transfer.
 pub fn retry(self: Transfer, opts: TransferRetryOptions) !void {
-    return self.client.postOk(endpoints.transfer.retry, &.{.{ .name = "id", .value = opts.id }});
+    return self.client.postOk(endpoints.transfer.retry, &.{.{ .name = "id", .value = opts.id }}, null);
 }
 
 pub const TransferDeleteOptions = struct {
@@ -118,12 +118,12 @@ pub const TransferDeleteOptions = struct {
 };
 /// POST /transfer/delete : Deletes a transfer record.
 pub fn delete(self: Transfer, opts: TransferDeleteOptions) !void {
-    return self.client.postOk(endpoints.transfer.delete, &.{.{ .name = "id", .value = opts.id }});
+    return self.client.postOk(endpoints.transfer.delete, &.{.{ .name = "id", .value = opts.id }}, null);
 }
 
 /// POST /transfer/clearfinished : Removes all finished transfers from the list.
 pub fn clearFinished(self: Transfer) !void {
-    return self.client.postOk(endpoints.transfer.clearfinished, &.{});
+    return self.client.postOk(endpoints.transfer.clearfinished, &.{}, null);
 }
 
 test "transfer/create" {

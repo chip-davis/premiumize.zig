@@ -29,7 +29,7 @@ pub fn list(self: Folder, opts: FolderListOptions) !std.json.Parsed(types.Folder
         n += 1;
     }
 
-    return self.client.get(types.FolderList, endpoints.folder.list, buf[0..n]);
+    return self.client.get(types.FolderList, endpoints.folder.list, buf[0..n], null);
 }
 
 pub const FolderCreateOptions = struct {
@@ -48,7 +48,7 @@ pub fn create(self: Folder, opts: FolderCreateOptions) !std.json.Parsed(types.Fo
     buf[n] = .{ .name = "name", .value = opts.name };
     n += 1;
 
-    return self.client.post(types.FolderCreate, endpoints.folder.create, buf[0..n]);
+    return self.client.post(types.FolderCreate, endpoints.folder.create, buf[0..n], null);
 }
 
 pub const FolderRenameOptions = struct {
@@ -57,7 +57,7 @@ pub const FolderRenameOptions = struct {
 };
 /// POST /folder/rename : Renames a folder.
 pub fn rename(self: Folder, opts: FolderRenameOptions) !void {
-    return self.client.postOk(endpoints.folder.rename, &.{ .{ .name = "id", .value = opts.id }, .{ .name = "name", .value = opts.name } });
+    return self.client.postOk(endpoints.folder.rename, &.{ .{ .name = "id", .value = opts.id }, .{ .name = "name", .value = opts.name } }, null);
 }
 
 pub const FolderDeleteOptions = struct {
@@ -65,7 +65,7 @@ pub const FolderDeleteOptions = struct {
 };
 /// POST /folder/delete : Deletes a folder and its contents.
 pub fn delete(self: Folder, opts: FolderDeleteOptions) !void {
-    return self.client.postOk(endpoints.folder.delete, &.{.{ .name = "id", .value = opts.id }});
+    return self.client.postOk(endpoints.folder.delete, &.{.{ .name = "id", .value = opts.id }}, null);
 }
 
 /// At least one of files[] or folders[] is required.
@@ -89,7 +89,7 @@ pub fn paste(self: Folder, opts: FolderPasteOptions) !void {
     for (opts.files) |f| params.appendAssumeCapacity(.{ .name = "files[]", .value = f });
     for (opts.folders) |f| params.appendAssumeCapacity(.{ .name = "folders[]", .value = f });
 
-    return self.client.postOk(endpoints.folder.paste, params.items);
+    return self.client.postOk(endpoints.folder.paste, params.items, null);
 }
 
 pub const FolderUploadInfoOptions = struct {
@@ -107,7 +107,7 @@ pub fn uploadInfo(self: Folder, opts: FolderUploadInfoOptions) !std.json.Parsed(
         n += 1;
     }
 
-    return self.client.post(types.FolderUploadInfo, endpoints.folder.uploadinfo, buf[0..n]);
+    return self.client.post(types.FolderUploadInfo, endpoints.folder.uploadinfo, buf[0..n], null);
 }
 
 pub const FolderSearchOptions = struct {
@@ -118,7 +118,7 @@ pub const FolderSearchOptions = struct {
 pub fn search(self: Folder, opts: FolderSearchOptions) !std.json.Parsed(types.FolderSearch) {
     return self.client.get(types.FolderSearch, endpoints.folder.search, &.{
         .{ .name = "q", .value = opts.q },
-    });
+    }, null);
 }
 
 test "folder/list root" {

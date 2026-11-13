@@ -29,7 +29,7 @@ pub fn generate(self: Zip, opts: ZipGenerateOptions) !std.json.Parsed(types.ZipG
     for (opts.files) |f| params.appendAssumeCapacity(.{ .name = "files[]", .value = f });
     for (opts.folders) |f| params.appendAssumeCapacity(.{ .name = "folders[]", .value = f });
 
-    return self.client.post(types.ZipGenerate, endpoints.zip.generate, params.items);
+    return self.client.post(types.ZipGenerate, endpoints.zip.generate, params.items, null);
 }
 
 test "zip/generate" {

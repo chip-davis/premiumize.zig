@@ -47,6 +47,22 @@ pub const ErrorCode = enum {
     }
 };
 
+pub const Diagnostics = struct {
+    code: ?ErrorCode = null,
+    buf: [256]u8 = undefined,
+    len: usize = 0,
+
+    pub fn message(self: *const Diagnostics) ?[]const u8 {
+        return if (self.len == 0) null else self.buf[0..self.len];
+    }
+
+    fn set(self: *Diagnostics, code: ?ErrorCode, msg: []const u8) void {
+        self.code = code;
+        self.len = @min(msg.len, self.buf.len);
+        @memcpy(self.buf[0..self.len], msg[0..self.len]);
+    }
+};
+
 allocator: Allocator,
 io: std.Io,
 http: httpx.Client,
@@ -78,17 +94,17 @@ pub fn lastErrorCode(self: *const Client) ?ErrorCode {
     return self.err_code;
 }
 
-pub fn get(self: *Client, comptime T: type, path: []const u8, params: []const Param) !std.json.Parsed(T) {
-    return self.call(T, .GET, path, params);
+pub fn get(self: *Client, comptime T: type, path: []const u8, params: []const Param, diag: ?*Diagnostics) !std.json.Parsed(T) {
+    return self.call(T, .GET, path, params, diag);
 }
 
-pub fn post(self: *Client, comptime T: type, path: []const u8, params: []const Param) !std.json.Parsed(T) {
-    return self.call(T, .POST, path, params);
+pub fn post(self: *Client, comptime T: type, path: []const u8, params: []const Param, diag: ?*Diagnostics) !std.json.Parsed(T) {
+    return self.call(T, .POST, path, params, diag);
 }
 
 /// POST for endpoints that only return {"status":"success"}.
-pub fn postOk(self: *Client, path: []const u8, params: []const Param) !void {
-    const res = try self.call(struct {}, .POST, path, params);
+pub fn postOk(self: *Client, path: []const u8, params: []const Param, diag: ?*Diagnostics) !void {
+    const res = try self.call(struct {}, .POST, path, params, diag);
     res.deinit();
 }
 
@@ -98,9 +114,11 @@ fn call(
     method: httpx.Method,
     path: []const u8,
     params: []const Param,
+    diag: ?*Diagnostics,
 ) !std.json.Parsed(T) {
     self.err_len = 0;
     self.err_code = null;
+    if (diag) |d| d.* = .{};
     const a = self.allocator;
 
     const url = try std.mem.concat(a, u8, &.{ self.options.base_url, path });
@@ -130,10 +148,10 @@ fn call(
     });
     defer res.deinit();
 
-    return self.decode(T, res.status, res.bytes());
+    return self.decode(T, res.status, res.bytes(), diag);
 }
 
-fn decode(self: *Client, comptime T: type, status: u16, body: []const u8) !std.json.Parsed(T) {
+fn decode(self: *Client, comptime T: type, status: u16, body: []const u8, diag: ?*Diagnostics) !std.json.Parsed(T) {
     const Envelope = struct { status: []const u8 = "", message: ?[]const u8 = null, code: ?[]const u8 = null };
 
     const env = std.json.parseFromSlice(Envelope, self.allocator, body, .{
@@ -144,14 +162,18 @@ fn decode(self: *Client, comptime T: type, status: u16, body: []const u8) !std.j
             if (status / 100 == 2) return error.InvalidResponse;
             // Non-JSON failure outside the normal envelope.
             self.err_code = .unknown_error;
+            if (diag) |d| d.set(.unknown_error, "");
             return error.BadStatus;
         },
     };
     defer env.deinit();
 
     if (!std.mem.eql(u8, env.value.status, "success")) {
-        self.setError(env.value.message orelse "unknown error");
-        if (env.value.code) |c| self.err_code = std.meta.stringToEnum(ErrorCode, c) orelse .unknown_error;
+        const msg = env.value.message orelse "unknown error";
+        const code: ?ErrorCode = if (env.value.code) |c| std.meta.stringToEnum(ErrorCode, c) orelse .unknown_error else null;
+        self.setError(msg);
+        self.err_code = code;
+        if (diag) |d| d.set(code, msg);
         return error.ApiError;
     }
 
@@ -162,29 +184,30 @@ fn decode(self: *Client, comptime T: type, status: u16, body: []const u8) !std.j
         error.OutOfMemory => e,
         else => {
             // e.g. "UnexpectedToken at byte 123: ...\"progress\":null..."
-            self.setParseError(T, e, body);
+            var buf: [256]u8 = undefined;
+            const msg = formatParseError(T, self.allocator, e, body, &buf);
+            self.setError(msg);
+            if (diag) |d| d.set(null, msg);
             return error.InvalidResponse;
         },
     };
 }
 
 /// Re-parses with diagnostics enabled to report where the body stopped matching T.
-fn setParseError(self: *Client, comptime T: type, err: anyerror, body: []const u8) void {
+/// Writes the message into `buf` and returns it.
+fn formatParseError(comptime T: type, a: Allocator, err: anyerror, body: []const u8, buf: []u8) []const u8 {
     var diag: std.json.Scanner.Diagnostics = .{};
-    var scanner = std.json.Scanner.initCompleteInput(self.allocator, body);
+    var scanner = std.json.Scanner.initCompleteInput(a, body);
     defer scanner.deinit();
     scanner.enableDiagnostics(&diag);
-    if (std.json.parseFromTokenSource(T, self.allocator, &scanner, .{
+    if (std.json.parseFromTokenSource(T, a, &scanner, .{
         .ignore_unknown_fields = true,
         .allocate = .alloc_always,
     })) |p| p.deinit() else |_| {}
 
     const off: usize = @intCast(@min(diag.getByteOffset(), body.len));
     const snippet = body[off -| 60..@min(body.len, off + 20)];
-    const msg = std.fmt.bufPrint(&self.err_buf, "{s} at byte {d}: ...{s}...", .{ @errorName(err), off, snippet }) catch {
-        return self.setError(@errorName(err));
-    };
-    self.err_len = msg.len;
+    return std.fmt.bufPrint(buf, "{s} at byte {d}: ...{s}...", .{ @errorName(err), off, snippet }) catch @errorName(err);
 }
 
 fn setError(self: *Client, msg: []const u8) void {
@@ -261,7 +284,7 @@ test "decode maps error codes" {
 
     try std.testing.expectError(error.ApiError, c.decode(T, 200,
         \\{"status":"error","code":"rate_limit_reached","message":"slow down"}
-    ));
+    , null));
     try std.testing.expectEqual(ErrorCode.rate_limit_reached, c.lastErrorCode().?);
     try std.testing.expectEqual(ErrorCode.Retry.semi_permanent, c.lastErrorCode().?.retry());
     try std.testing.expectEqualStrings("slow down", c.lastError().?);
@@ -269,11 +292,11 @@ test "decode maps error codes" {
     // Unrecognised code falls back to unknown_error.
     try std.testing.expectError(error.ApiError, c.decode(T, 200,
         \\{"status":"error","code":"brand_new_code","message":"x"}
-    ));
+    , null));
     try std.testing.expectEqual(ErrorCode.unknown_error, c.lastErrorCode().?);
 
     // HTTP 500 with a non-JSON body.
-    try std.testing.expectError(error.BadStatus, c.decode(T, 500, "Internal Server Error"));
+    try std.testing.expectError(error.BadStatus, c.decode(T, 500, "Internal Server Error", null));
     try std.testing.expectEqual(ErrorCode.unknown_error, c.lastErrorCode().?);
 }
 
@@ -370,7 +393,7 @@ test "parse errors report where the body stopped matching" {
     const T = struct { name: []const u8, size: u64 };
     try std.testing.expectError(error.InvalidResponse, c.decode(T, 200,
         \\{"status":"success","name":null,"size":1}
-    ));
+    , null));
     const msg = c.lastError().?;
     try std.testing.expect(std.mem.startsWith(u8, msg, "UnexpectedToken at byte "));
     try std.testing.expect(std.mem.indexOf(u8, msg, "\"name\":null") != null);

@@ -15,7 +15,7 @@ pub const ItemDetailsOptions = struct {
 /// GET /item/details
 /// Returns full metadata for a single file. Folder IDs are not accepted; pass a file ID only.
 pub fn details(self: Item, opts: ItemDetailsOptions) !std.json.Parsed(types.ItemDetails) {
-    return self.client.get(types.ItemDetails, endpoints.item.details, &.{.{ .name = "id", .value = opts.id }});
+    return self.client.get(types.ItemDetails, endpoints.item.details, &.{.{ .name = "id", .value = opts.id }}, null);
 }
 
 pub const ItemRenameOptions = struct {
@@ -26,7 +26,7 @@ pub const ItemRenameOptions = struct {
 /// POST /item/rename
 /// Renames a file.
 pub fn rename(self: Item, opts: ItemRenameOptions) !void {
-    return self.client.postOk(endpoints.item.rename, &.{ .{ .name = "id", .value = opts.id }, .{ .name = "name", .value = opts.name } });
+    return self.client.postOk(endpoints.item.rename, &.{ .{ .name = "id", .value = opts.id }, .{ .name = "name", .value = opts.name } }, null);
 }
 
 pub const ItemDeleteOptions = struct {
@@ -35,14 +35,14 @@ pub const ItemDeleteOptions = struct {
 
 /// POST /item/delete : Deletes a file
 pub fn delete(self: Item, opts: ItemDeleteOptions) !void {
-    return self.client.postOk(endpoints.item.delete, &.{.{ .name = "id", .value = opts.id }});
+    return self.client.postOk(endpoints.item.delete, &.{.{ .name = "id", .value = opts.id }}, null);
 }
 
 /// GET /item/listall : Returns a flat list of every file the user owns, with full path.
 /// Parameters: None.
 /// Each files entry has id, name, path (the slash-joined path from root), size (bytes), created_at (Unix timestamp), and mime_type.
 pub fn listAll(self: Item) !std.json.Parsed(types.ItemListAll) {
-    return self.client.get(types.ItemListAll, endpoints.item.listall, &.{});
+    return self.client.get(types.ItemListAll, endpoints.item.listall, &.{}, null);
 }
 
 test "item/details" {
