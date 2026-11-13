@@ -8,9 +8,13 @@ const endpoints = @import("../endpoints.zig");
 const mock = @import("../testing.zig");
 client: *Client,
 
+pub const AccountInfoOptions = struct {
+    diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
+};
+
 /// GET /account/info
-pub fn info(self: Account) !std.json.Parsed(types.AccountInfo) {
-    return self.client.get(types.AccountInfo, endpoints.account.info, &.{}, null);
+pub fn info(self: Account, opts: AccountInfoOptions) !std.json.Parsed(types.AccountInfo) {
+    return self.client.get(types.AccountInfo, endpoints.account.info, &.{}, opts.diag);
 }
 
 test "account/info" {
@@ -21,7 +25,7 @@ test "account/info" {
     var c = srv.client();
     defer c.deinit();
 
-    const res = try c.account().info();
+    const res = try c.account().info(.{});
     defer res.deinit();
 
     try srv.expectGet("GET /api/account/info?apikey=test-key");

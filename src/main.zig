@@ -17,7 +17,7 @@ const transfer_timeout_s = 180;
 
 /// Prints one line per step and tallies results.
 const Run = struct {
-    pm: *Client,
+    diag: Client.Diagnostics = .{}, // Shared by every call; runs one at a time.
     passed: usize = 0,
     failed: usize = 0,
     skipped: usize = 0,
@@ -29,16 +29,16 @@ const Run = struct {
 
     fn fail(self: *Run, step: []const u8, err: anyerror) void {
         self.failed += 1;
-        const code = if (self.pm.lastErrorCode()) |c| @tagName(c) else "-";
-        std.debug.print("  FAIL  {s:<24} {s} [{s}] {s}\n", .{ step, @errorName(err), code, self.pm.lastError() orelse "" });
+        const code = if (self.diag.code) |c| @tagName(c) else "-";
+        std.debug.print("  FAIL  {s:<24} {s} [{s}] {s}\n", .{ step, @errorName(err), code, self.diag.message() orelse "" });
     }
 
     /// A step whose API error is acceptable (e.g. retrying a transfer that didn't fail).
     fn expectedError(self: *Run, step: []const u8, err: anyerror) void {
         if (err != error.ApiError) return self.fail(step, err);
         self.passed += 1;
-        const code = if (self.pm.lastErrorCode()) |c| @tagName(c) else "-";
-        std.debug.print("  ok    {s:<24} rejected as expected [{s}] {s}\n", .{ step, code, self.pm.lastError() orelse "" });
+        const code = if (self.diag.code) |c| @tagName(c) else "-";
+        std.debug.print("  ok    {s:<24} rejected as expected [{s}] {s}\n", .{ step, code, self.diag.message() orelse "" });
     }
 
     fn skip(self: *Run, step: []const u8, why: []const u8) void {
@@ -66,7 +66,7 @@ pub fn main(init: std.process.Init) !void {
 
     var pm = Client.init(gpa, io, .{ .auth = .{ .api_key = api_key } });
     defer pm.deinit();
-    var run: Run = .{ .pm = &pm };
+    var run: Run = .{};
 
     const now_s = std.Io.Clock.real.now(io).toSeconds();
     const scratch_name = try std.fmt.allocPrint(keep, "pmzig-e2e-{d}", .{now_s});
@@ -76,12 +76,12 @@ pub fn main(init: std.process.Init) !void {
     // ── Read-only ──────────────────────────────────────────────────────
     std.debug.print("account / services\n", .{});
 
-    if (pm.account().info()) |r| {
+    if (pm.account().info(.{ .diag = &run.diag })) |r| {
         defer r.deinit();
         run.ok("account/info", "customer {s}, {d:.1} GB used, fair use {d:.0}%", .{ r.value.customer_id, r.value.space_used / 1e9, r.value.limit_used * 100 });
     } else |e| run.fail("account/info", e);
 
-    if (pm.services().list()) |r| {
+    if (pm.services().list(.{ .diag = &run.diag })) |r| {
         defer r.deinit();
         run.ok("services/list", "{d} cache, {d} directdl, {d} queue", .{ r.value.cache.len, r.value.directdl.len, r.value.queue.len });
     } else |e| run.fail("services/list", e);
@@ -89,12 +89,12 @@ pub fn main(init: std.process.Init) !void {
     // ── Folders ────────────────────────────────────────────────────────
     std.debug.print("\nfolders\n", .{});
 
-    if (pm.folder().list(.{})) |r| {
+    if (pm.folder().list(.{ .diag = &run.diag })) |r| {
         defer r.deinit();
         run.ok("folder/list (root)", "{d} entries", .{r.value.content.len});
     } else |e| run.fail("folder/list (root)", e);
 
-    const scratch_id: ?[]const u8 = if (pm.folder().create(.{ .name = scratch_name })) |r| blk: {
+    const scratch_id: ?[]const u8 = if (pm.folder().create(.{ .name = scratch_name, .diag = &run.diag })) |r| blk: {
         defer r.deinit();
         run.ok("folder/create", "{s} -> {s}", .{ scratch_name, r.value.id });
         break :blk try keep.dupe(u8, r.value.id);
@@ -110,13 +110,13 @@ pub fn main(init: std.process.Init) !void {
     // Always clean up the scratch folder (and everything in it).
     defer {
         std.debug.print("\ncleanup\n", .{});
-        if (pm.folder().delete(.{ .id = scratch })) {
+        if (pm.folder().delete(.{ .id = scratch, .diag = &run.diag })) {
             run.ok("folder/delete", "removed {s}", .{scratch_name});
         } else |e| run.fail("folder/delete", e);
         finish(&run);
     }
 
-    const sub_id: ?[]const u8 = if (pm.folder().create(.{ .name = "sub", .parent_id = scratch })) |r| blk: {
+    const sub_id: ?[]const u8 = if (pm.folder().create(.{ .name = "sub", .parent_id = scratch, .diag = &run.diag })) |r| blk: {
         defer r.deinit();
         run.ok("folder/create (child)", "sub -> {s}", .{r.value.id});
         break :blk try keep.dupe(u8, r.value.id);
@@ -126,17 +126,17 @@ pub fn main(init: std.process.Init) !void {
     };
 
     if (sub_id) |sub| {
-        if (pm.folder().rename(.{ .id = sub, .name = "sub renamed" })) {
+        if (pm.folder().rename(.{ .id = sub, .name = "sub renamed", .diag = &run.diag })) {
             run.ok("folder/rename", "sub -> \"sub renamed\"", .{});
         } else |e| run.fail("folder/rename", e);
     } else run.skip("folder/rename", "no child folder");
 
-    if (pm.folder().list(.{ .id = scratch, .include_breadcrumbs = true })) |r| {
+    if (pm.folder().list(.{ .id = scratch, .include_breadcrumbs = true, .diag = &run.diag })) |r| {
         defer r.deinit();
         run.ok("folder/list (scratch)", "{d} entries, {d} breadcrumbs", .{ r.value.content.len, r.value.breadcrumbs.len });
     } else |e| run.fail("folder/list (scratch)", e);
 
-    if (pm.folder().uploadInfo(.{ .id = scratch })) |r| {
+    if (pm.folder().uploadInfo(.{ .id = scratch, .diag = &run.diag })) |r| {
         defer r.deinit();
         run.ok("folder/uploadinfo", "got upload url ({d} chars)", .{r.value.url.len});
     } else |e| run.fail("folder/uploadinfo", e);
@@ -144,18 +144,18 @@ pub fn main(init: std.process.Init) !void {
     // ── Transfers ──────────────────────────────────────────────────────
     std.debug.print("\ntransfers\n", .{});
 
-    if (pm.cache().check(.{ .items = &.{src} })) |r| {
+    if (pm.cache().check(.{ .items = &.{src}, .diag = &run.diag })) |r| {
         defer r.deinit();
         const hit = r.value.response.len > 0 and r.value.response[0];
         run.ok("cache/check", "cached: {}", .{hit});
     } else |e| run.fail("cache/check", e);
 
-    if (pm.transfer().directDl(.{ .src = src })) |r| {
+    if (pm.transfer().directDl(.{ .src = src, .diag = &run.diag })) |r| {
         defer r.deinit();
         run.ok("transfer/directdl", "{d} file(s)", .{r.value.content.len});
     } else |e| run.fail("transfer/directdl", e);
 
-    const transfer_id: ?[]const u8 = if (pm.transfer().create(.{ .src = src, .folder_id = scratch })) |r| blk: {
+    const transfer_id: ?[]const u8 = if (pm.transfer().create(.{ .src = src, .folder_id = scratch, .diag = &run.diag })) |r| blk: {
         defer r.deinit();
         run.ok("transfer/create", "{s} ({s})", .{ r.value.id, r.value.name });
         break :blk try keep.dupe(u8, r.value.id);
@@ -165,12 +165,12 @@ pub fn main(init: std.process.Init) !void {
     };
 
     if (transfer_id) |tid| {
-        if (pm.transfer().list()) |r| {
+        if (pm.transfer().list(.{ .diag = &run.diag })) |r| {
             defer r.deinit();
             run.ok("transfer/list", "{d} transfer(s)", .{r.value.transfers.len});
         } else |e| run.fail("transfer/list", e);
 
-        const final: TransferStatus = if (pm.transfer().wait(.{ .id = tid, .timeout_s = transfer_timeout_s })) |r| blk: {
+        const final: TransferStatus = if (pm.transfer().wait(.{ .id = tid, .timeout_s = transfer_timeout_s, .diag = &run.diag })) |r| blk: {
             defer r.deinit();
             run.ok("transfer/wait", "{t} ({d:.0}%) {s}", .{ r.value.status, (r.value.progress orelse 0) * 100, r.value.message orelse "" });
             break :blk r.value.status;
@@ -179,7 +179,7 @@ pub fn main(init: std.process.Init) !void {
             if (e == error.Timeout) run.ok("transfer/wait", "still running after {d}s; continuing", .{transfer_timeout_s}) else run.fail("transfer/wait", e);
             break :blk .unknown;
         };
-        if (pm.transfer().retry(.{ .id = tid })) {
+        if (pm.transfer().retry(.{ .id = tid, .diag = &run.diag })) {
             run.ok("transfer/retry", "re-queued", .{});
         } else |e| {
             // Retry only applies to failed transfers; a finished one is rejected.
@@ -194,7 +194,7 @@ pub fn main(init: std.process.Init) !void {
     // ── Items (files the transfer put in the scratch folder) ───────────
     std.debug.print("\nitems\n", .{});
 
-    const file_id: ?[]const u8 = if (pm.item().listAll()) |r| blk: {
+    const file_id: ?[]const u8 = if (pm.item().listAll(.{ .diag = &run.diag })) |r| blk: {
         defer r.deinit();
         var found: ?[]const u8 = null;
         for (r.value.files) |f| {
@@ -211,38 +211,38 @@ pub fn main(init: std.process.Init) !void {
     };
 
     if (file_id) |fid| {
-        if (pm.item().details(.{ .id = fid })) |r| {
+        if (pm.item().details(.{ .id = fid, .diag = &run.diag })) |r| {
             defer r.deinit();
             run.ok("item/details", "{s}, {d} bytes, {s}", .{ r.value.name, r.value.size, r.value.mime_type });
         } else |e| run.fail("item/details", e);
 
         const new_name = try std.fmt.allocPrint(keep, "{s}-file", .{scratch_name});
-        if (pm.item().rename(.{ .id = fid, .name = new_name })) {
+        if (pm.item().rename(.{ .id = fid, .name = new_name, .diag = &run.diag })) {
             run.ok("item/rename", "-> {s}", .{new_name});
         } else |e| run.fail("item/rename", e);
 
-        if (pm.folder().search(.{ .q = new_name })) |r| {
+        if (pm.folder().search(.{ .q = new_name, .diag = &run.diag })) |r| {
             defer r.deinit();
             run.ok("folder/search", "\"{s}\": {d} result(s)", .{ new_name, r.value.content.len });
         } else |e| run.fail("folder/search", e);
 
         if (sub_id) |sub| {
-            if (pm.folder().paste(.{ .id = sub, .files = &.{fid} })) {
+            if (pm.folder().paste(.{ .id = sub, .files = &.{fid}, .diag = &run.diag })) {
                 run.ok("folder/paste", "moved file into child folder", .{});
             } else |e| run.fail("folder/paste", e);
         } else run.skip("folder/paste", "no child folder");
 
-        if (pm.zip().generate(.{ .files = &.{fid} })) |r| {
+        if (pm.zip().generate(.{ .files = &.{fid}, .diag = &run.diag })) |r| {
             defer r.deinit();
             run.ok("zip/generate", "{s}", .{std.fs.path.basename(r.value.location)});
         } else |e| run.fail("zip/generate", e);
 
-        if (pm.item().delete(.{ .id = fid })) {
+        if (pm.item().delete(.{ .id = fid, .diag = &run.diag })) {
             run.ok("item/delete", "removed test file", .{});
         } else |e| run.fail("item/delete", e);
     } else {
         // No file landed; still exercise search and zip on the folders.
-        if (pm.folder().search(.{ .q = scratch_name })) |r| {
+        if (pm.folder().search(.{ .q = scratch_name, .diag = &run.diag })) |r| {
             defer r.deinit();
             run.ok("folder/search", "\"{s}\": {d} result(s)", .{ scratch_name, r.value.content.len });
         } else |e| run.fail("folder/search", e);
@@ -254,13 +254,13 @@ pub fn main(init: std.process.Init) !void {
     }
 
     if (transfer_id) |tid| {
-        if (pm.transfer().delete(.{ .id = tid })) {
+        if (pm.transfer().delete(.{ .id = tid, .diag = &run.diag })) {
             run.ok("transfer/delete", "removed {s}", .{tid});
         } else |e| run.fail("transfer/delete", e);
     } else run.skip("transfer/delete", "no transfer");
 
     if (clear_finished) {
-        if (pm.transfer().clearFinished()) {
+        if (pm.transfer().clearFinished(.{ .diag = &run.diag })) {
             run.ok("transfer/clearfinished", "cleared", .{});
         } else |e| run.fail("transfer/clearfinished", e);
     } else run.skip("transfer/clearfinished", "pass --clear-finished to run (clears ALL finished transfers)");

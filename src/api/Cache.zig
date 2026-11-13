@@ -10,6 +10,7 @@ client: *Client,
 
 pub const CacheCheckOptions = struct {
     items: []const []const u8, // Links to check. Required.
+    diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
 };
 
 /// POST /cache/check : Tests whether links are already in the cache.
@@ -25,7 +26,7 @@ pub fn check(self: Cache, opts: CacheCheckOptions) !std.json.Parsed(types.CacheC
 
     for (opts.items) |i| params.appendAssumeCapacity(.{ .name = "items[]", .value = i });
 
-    return self.client.post(types.CacheCheck, endpoints.cache.check, params.items, null);
+    return self.client.post(types.CacheCheck, endpoints.cache.check, params.items, opts.diag);
 }
 
 test "cache/check" {

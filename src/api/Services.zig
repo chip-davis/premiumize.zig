@@ -8,9 +8,13 @@ const endpoints = @import("../endpoints.zig");
 const mock = @import("../testing.zig");
 client: *Client,
 
+pub const ServicesListOptions = struct {
+    diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
+};
+
 /// GET /services/list : Returns metadata for every supported service.
-pub fn list(self: Services) !std.json.Parsed(types.ServicesList) {
-    return self.client.get(types.ServicesList, endpoints.services.list, &.{}, null);
+pub fn list(self: Services, opts: ServicesListOptions) !std.json.Parsed(types.ServicesList) {
+    return self.client.get(types.ServicesList, endpoints.services.list, &.{}, opts.diag);
 }
 
 test "services/list" {
@@ -24,7 +28,7 @@ test "services/list" {
     var c = srv.client();
     defer c.deinit();
 
-    const res = try c.services().list();
+    const res = try c.services().list(.{});
     defer res.deinit();
 
     try srv.expectGet("GET /api/services/list?apikey=test-key");

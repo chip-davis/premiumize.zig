@@ -12,6 +12,7 @@ pub const TransferCreateOptions = struct {
     src: []const u8, // A URI for the transfer (as a string) or a source file for the transfer (multipart upload)
     folder_id: ?[]const u8 = null, // Target folder. Optional
     password: ?[]const u8 = null, // Password for thr tranfer. Optional
+    diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
 };
 
 /// POST /transfer/create
@@ -34,31 +35,39 @@ pub fn create(self: Transfer, opts: TransferCreateOptions) !std.json.Parsed(type
         n += 1;
     }
 
-    return self.client.post(types.TransferCreate, endpoints.transfer.create, buf[0..n], null);
+    return self.client.post(types.TransferCreate, endpoints.transfer.create, buf[0..n], opts.diag);
 }
 
 pub const TransferDirectDlOptions = struct {
     src: []const u8, // Transfer source URL
+    diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
 };
 
 /// POST /transfer/directdl
 /// Generates direct download links from a transfer source without storing it in your cloud. The content array can hold one or many file entries
 /// — a single hoster URL typically resolves to one file, while a magnet or torrent source resolves to every file inside the archive.
 pub fn directDl(self: Transfer, opts: TransferDirectDlOptions) !std.json.Parsed(types.TransferDirectDl) {
-    return self.client.post(types.TransferDirectDl, endpoints.transfer.directdl, &.{.{ .name = "src", .value = opts.src }}, null);
+    return self.client.post(types.TransferDirectDl, endpoints.transfer.directdl, &.{.{ .name = "src", .value = opts.src }}, opts.diag);
 }
+
+pub const TransferListOptions = struct {
+    diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
+};
 
 /// GET /transfer/list : Returns every transfer the user has created — active, queued, finished, and errored — newest first.
 /// Responses are not cached; expect to poll while a transfer is running.
-pub fn list(self: Transfer) !std.json.Parsed(types.TransferList) {
-    return self.client.get(types.TransferList, endpoints.transfer.list, &.{}, null);
+pub fn list(self: Transfer, opts: TransferListOptions) !std.json.Parsed(types.TransferList) {
+    return self.client.get(types.TransferList, endpoints.transfer.list, &.{}, opts.diag);
 }
 
-pub const TransferGetOptions = struct { id: []const u8 };
+pub const TransferGetOptions = struct {
+    id: []const u8, // Transfer ID. Required.
+    diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
+};
 
 /// Helper function wrapping list()
 pub fn get(self: Transfer, opts: TransferGetOptions) !?std.json.Parsed(types.TransferEntry) {
-    const res = try self.list();
+    const res = try self.list(.{ .diag = opts.diag });
     for (res.value.transfers) |transfer| {
         if (std.mem.eql(u8, transfer.id, opts.id)) return .{ .arena = res.arena, .value = transfer };
     }
@@ -71,6 +80,7 @@ pub const TransferWaitOptions = struct {
     interval_s: u32 = 3, // Seconds between polls.
     timeout_s: u32 = 60, // Give up after this long. Returns error.Timeout.
     not_found_grace: u32 = 2, // Polls to allow before a missing ID becomes error.TransferNotFound.
+    diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
 };
 
 /// Helper function around get() : Polls until finished, seeding or errored.
@@ -78,14 +88,18 @@ pub const TransferWaitOptions = struct {
 pub fn wait(self: Transfer, opts: TransferWaitOptions) !std.json.Parsed(types.TransferEntry) {
     if (opts.interval_s == 0) return Client.Error.InvalidArgument;
 
+    // Needed to decide whether an ApiError is retryable, even when the caller passed none.
+    var local: Client.Diagnostics = .{};
+    const d = opts.diag orelse &local;
+
     var waited: u32 = 0;
     var misses: u32 = 0;
 
     while (waited <= opts.timeout_s) : (waited += opts.interval_s) {
         if (waited > 0) try self.client.io.sleep(.fromSeconds(opts.interval_s), .awake);
 
-        const maybe = self.get(.{ .id = opts.id }) catch |e| switch (e) {
-            error.ApiError => switch ((self.client.lastErrorCode() orelse return e).retry()) {
+        const maybe = self.get(.{ .id = opts.id, .diag = d }) catch |e| switch (e) {
+            error.ApiError => switch ((d.code orelse return e).retry()) {
                 .transient, .semi_permanent => continue,
                 .permanent, .unknown => return e,
             },
@@ -107,23 +121,29 @@ pub fn wait(self: Transfer, opts: TransferWaitOptions) !std.json.Parsed(types.Tr
 
 pub const TransferRetryOptions = struct {
     id: []const u8, // Transfer ID. Required.
+    diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
 };
 /// POST /transfer/retry : Re-queues a failed transfer.
 pub fn retry(self: Transfer, opts: TransferRetryOptions) !void {
-    return self.client.postOk(endpoints.transfer.retry, &.{.{ .name = "id", .value = opts.id }}, null);
+    return self.client.postOk(endpoints.transfer.retry, &.{.{ .name = "id", .value = opts.id }}, opts.diag);
 }
 
 pub const TransferDeleteOptions = struct {
     id: []const u8, // Transfer ID. Required.
+    diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
 };
 /// POST /transfer/delete : Deletes a transfer record.
 pub fn delete(self: Transfer, opts: TransferDeleteOptions) !void {
-    return self.client.postOk(endpoints.transfer.delete, &.{.{ .name = "id", .value = opts.id }}, null);
+    return self.client.postOk(endpoints.transfer.delete, &.{.{ .name = "id", .value = opts.id }}, opts.diag);
 }
 
+pub const TransferClearFinishedOptions = struct {
+    diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
+};
+
 /// POST /transfer/clearfinished : Removes all finished transfers from the list.
-pub fn clearFinished(self: Transfer) !void {
-    return self.client.postOk(endpoints.transfer.clearfinished, &.{}, null);
+pub fn clearFinished(self: Transfer, opts: TransferClearFinishedOptions) !void {
+    return self.client.postOk(endpoints.transfer.clearfinished, &.{}, opts.diag);
 }
 
 test "transfer/create" {
@@ -190,7 +210,7 @@ test "transfer/list" {
     var c = srv.client();
     defer c.deinit();
 
-    const res = try c.transfer().list();
+    const res = try c.transfer().list(.{});
     defer res.deinit();
 
     try srv.expectGet("GET /api/transfer/list?apikey=test-key");
@@ -260,8 +280,10 @@ test "transfer get api error" {
     var c = srv.client();
     defer c.deinit();
 
-    try std.testing.expectError(error.ApiError, c.transfer().get(.{ .id = "t1" }));
-    try std.testing.expectEqual(Client.ErrorCode.authentication_failed, c.lastErrorCode().?);
+    var d: Client.Diagnostics = .{};
+    try std.testing.expectError(error.ApiError, c.transfer().get(.{ .id = "t1", .diag = &d }));
+    try std.testing.expectEqual(Client.ErrorCode.authentication_failed, d.code.?);
+    try std.testing.expectEqualStrings("Not logged in.", d.message().?);
 }
 
 test "transfer wait finished" {
@@ -345,8 +367,9 @@ test "transfer wait permanent api error" {
     var c = srv.client();
     defer c.deinit();
 
-    try std.testing.expectError(error.ApiError, c.transfer().wait(.{ .id = "t1" }));
-    try std.testing.expectEqual(Client.ErrorCode.authentication_failed, c.lastErrorCode().?);
+    var d: Client.Diagnostics = .{};
+    try std.testing.expectError(error.ApiError, c.transfer().wait(.{ .id = "t1", .diag = &d }));
+    try std.testing.expectEqual(Client.ErrorCode.authentication_failed, d.code.?);
 }
 
 test "transfer wait retryable api error" {
@@ -400,7 +423,7 @@ test "transfer/clearfinished" {
     var c = srv.client();
     defer c.deinit();
 
-    try c.transfer().clearFinished();
+    try c.transfer().clearFinished(.{});
 
     try srv.expectPost("POST /api/transfer/clearfinished?apikey=test-key", "");
 }

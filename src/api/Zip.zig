@@ -12,6 +12,7 @@ client: *Client,
 pub const ZipGenerateOptions = struct {
     files: []const []const u8 = &.{}, // File IDs to include. Optional.
     folders: []const []const u8 = &.{}, // Folder IDs to include. Optional.
+    diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
 };
 
 /// POST /zip/generate : Bundles selected files and folders into a single .zip download.
@@ -29,7 +30,7 @@ pub fn generate(self: Zip, opts: ZipGenerateOptions) !std.json.Parsed(types.ZipG
     for (opts.files) |f| params.appendAssumeCapacity(.{ .name = "files[]", .value = f });
     for (opts.folders) |f| params.appendAssumeCapacity(.{ .name = "folders[]", .value = f });
 
-    return self.client.post(types.ZipGenerate, endpoints.zip.generate, params.items, null);
+    return self.client.post(types.ZipGenerate, endpoints.zip.generate, params.items, opts.diag);
 }
 
 test "zip/generate" {

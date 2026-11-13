@@ -10,7 +10,7 @@ const mock = @import("../testing.zig");
 
 client: *Client,
 
-pub const FolderListOptions = struct { id: ?[]const u8 = null, path: ?[]const u8 = null, include_breadcrumbs: bool = false };
+pub const FolderListOptions = struct { id: ?[]const u8 = null, path: ?[]const u8 = null, include_breadcrumbs: bool = false, diag: ?*Client.Diagnostics = null };
 /// GET /folder/list : Lists the contents of a folder. If neither id nor path is passed, the root folder is returned.
 pub fn list(self: Folder, opts: FolderListOptions) !std.json.Parsed(types.FolderList) {
     var buf: [3]Client.Param = undefined;
@@ -29,12 +29,13 @@ pub fn list(self: Folder, opts: FolderListOptions) !std.json.Parsed(types.Folder
         n += 1;
     }
 
-    return self.client.get(types.FolderList, endpoints.folder.list, buf[0..n], null);
+    return self.client.get(types.FolderList, endpoints.folder.list, buf[0..n], opts.diag);
 }
 
 pub const FolderCreateOptions = struct {
     name: []const u8, // Folder name. Required.
     parent_id: ?[]const u8 = null, // Parent folder ID. Optional; defaults to root.
+    diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
 };
 /// POST /folder/create : Creates a folder.
 pub fn create(self: Folder, opts: FolderCreateOptions) !std.json.Parsed(types.FolderCreate) {
@@ -48,24 +49,26 @@ pub fn create(self: Folder, opts: FolderCreateOptions) !std.json.Parsed(types.Fo
     buf[n] = .{ .name = "name", .value = opts.name };
     n += 1;
 
-    return self.client.post(types.FolderCreate, endpoints.folder.create, buf[0..n], null);
+    return self.client.post(types.FolderCreate, endpoints.folder.create, buf[0..n], opts.diag);
 }
 
 pub const FolderRenameOptions = struct {
     id: []const u8, // Folder ID. Required.
     name: []const u8, // New name. Required.
+    diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
 };
 /// POST /folder/rename : Renames a folder.
 pub fn rename(self: Folder, opts: FolderRenameOptions) !void {
-    return self.client.postOk(endpoints.folder.rename, &.{ .{ .name = "id", .value = opts.id }, .{ .name = "name", .value = opts.name } }, null);
+    return self.client.postOk(endpoints.folder.rename, &.{ .{ .name = "id", .value = opts.id }, .{ .name = "name", .value = opts.name } }, opts.diag);
 }
 
 pub const FolderDeleteOptions = struct {
     id: []const u8, // Folder ID. Required.
+    diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
 };
 /// POST /folder/delete : Deletes a folder and its contents.
 pub fn delete(self: Folder, opts: FolderDeleteOptions) !void {
-    return self.client.postOk(endpoints.folder.delete, &.{.{ .name = "id", .value = opts.id }}, null);
+    return self.client.postOk(endpoints.folder.delete, &.{.{ .name = "id", .value = opts.id }}, opts.diag);
 }
 
 /// At least one of files[] or folders[] is required.
@@ -73,6 +76,7 @@ pub const FolderPasteOptions = struct {
     id: []const u8, // Target folder ID.
     files: []const []const u8 = &.{}, // File IDs to move. Optional
     folders: []const []const u8 = &.{}, // Folder IDs to move. Optional.
+    diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
 };
 /// POST /folder/paste : Moves files and/or folders into a target folder.
 pub fn paste(self: Folder, opts: FolderPasteOptions) !void {
@@ -89,11 +93,12 @@ pub fn paste(self: Folder, opts: FolderPasteOptions) !void {
     for (opts.files) |f| params.appendAssumeCapacity(.{ .name = "files[]", .value = f });
     for (opts.folders) |f| params.appendAssumeCapacity(.{ .name = "folders[]", .value = f });
 
-    return self.client.postOk(endpoints.folder.paste, params.items, null);
+    return self.client.postOk(endpoints.folder.paste, params.items, opts.diag);
 }
 
 pub const FolderUploadInfoOptions = struct {
     id: ?[]const u8 = null, // Target folder ID. Optional; defaults to root.
+    diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
 };
 
 /// POST /folder/uploadinfo : Returns an upload token and URL for direct file upload to a folder.
@@ -107,18 +112,19 @@ pub fn uploadInfo(self: Folder, opts: FolderUploadInfoOptions) !std.json.Parsed(
         n += 1;
     }
 
-    return self.client.post(types.FolderUploadInfo, endpoints.folder.uploadinfo, buf[0..n], null);
+    return self.client.post(types.FolderUploadInfo, endpoints.folder.uploadinfo, buf[0..n], opts.diag);
 }
 
 pub const FolderSearchOptions = struct {
     q: []const u8, // Search query string.
+    diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
 };
 
 /// GET /folder/search : Searches for matching files and folders across the user's storage.
 pub fn search(self: Folder, opts: FolderSearchOptions) !std.json.Parsed(types.FolderSearch) {
     return self.client.get(types.FolderSearch, endpoints.folder.search, &.{
         .{ .name = "q", .value = opts.q },
-    }, null);
+    }, opts.diag);
 }
 
 test "folder/list root" {

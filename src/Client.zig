@@ -14,7 +14,7 @@ pub const Options = struct { auth: Auth, base_url: []const u8 = default_base_url
 
 pub const Error = error{ ApiError, BadStatus, InvalidResponse, InvalidArgument, Timeout, TransferNotFound };
 
-/// The `code` field of an error response. Read it with `lastErrorCode()` after `error.ApiError`.
+/// The `code` field of an error response. Read it from `Diagnostics.code` after `error.ApiError`.
 pub const ErrorCode = enum {
     // Transient — retry now may succeed
     link_generation_failed,
@@ -47,8 +47,9 @@ pub const ErrorCode = enum {
     }
 };
 
+/// Error details for one call. Pass a pointer in an endpoint's options; reset at the start of the call, filled only on failure.
 pub const Diagnostics = struct {
-    code: ?ErrorCode = null,
+    code: ?ErrorCode = null, // Set on ApiError (when the response has one) and BadStatus.
     buf: [256]u8 = undefined,
     len: usize = 0,
 
@@ -67,9 +68,6 @@ allocator: Allocator,
 io: std.Io,
 http: httpx.Client,
 options: Options,
-err_buf: [256]u8 = undefined,
-err_len: usize = 0,
-err_code: ?ErrorCode = null,
 
 pub fn init(allocator: Allocator, io: std.Io, options: Options) Client {
     return .{
@@ -83,15 +81,6 @@ pub fn init(allocator: Allocator, io: std.Io, options: Options) Client {
 pub fn deinit(self: *Client) void {
     self.http.deinit();
     self.* = undefined;
-}
-
-pub fn lastError(self: *const Client) ?[]const u8 {
-    return if (self.err_len == 0) null else self.err_buf[0..self.err_len];
-}
-
-/// Code from the most recent error.ApiError or error.BadStatus. Null when the response had no code. Not thread-safe.
-pub fn lastErrorCode(self: *const Client) ?ErrorCode {
-    return self.err_code;
 }
 
 pub fn get(self: *Client, comptime T: type, path: []const u8, params: []const Param, diag: ?*Diagnostics) !std.json.Parsed(T) {
@@ -116,8 +105,6 @@ fn call(
     params: []const Param,
     diag: ?*Diagnostics,
 ) !std.json.Parsed(T) {
-    self.err_len = 0;
-    self.err_code = null;
     if (diag) |d| d.* = .{};
     const a = self.allocator;
 
@@ -161,7 +148,6 @@ fn decode(self: *Client, comptime T: type, status: u16, body: []const u8, diag: 
         else => {
             if (status / 100 == 2) return error.InvalidResponse;
             // Non-JSON failure outside the normal envelope.
-            self.err_code = .unknown_error;
             if (diag) |d| d.set(.unknown_error, "");
             return error.BadStatus;
         },
@@ -171,8 +157,6 @@ fn decode(self: *Client, comptime T: type, status: u16, body: []const u8, diag: 
     if (!std.mem.eql(u8, env.value.status, "success")) {
         const msg = env.value.message orelse "unknown error";
         const code: ?ErrorCode = if (env.value.code) |c| std.meta.stringToEnum(ErrorCode, c) orelse .unknown_error else null;
-        self.setError(msg);
-        self.err_code = code;
         if (diag) |d| d.set(code, msg);
         return error.ApiError;
     }
@@ -186,7 +170,6 @@ fn decode(self: *Client, comptime T: type, status: u16, body: []const u8, diag: 
             // e.g. "UnexpectedToken at byte 123: ...\"progress\":null..."
             var buf: [256]u8 = undefined;
             const msg = formatParseError(T, self.allocator, e, body, &buf);
-            self.setError(msg);
             if (diag) |d| d.set(null, msg);
             return error.InvalidResponse;
         },
@@ -208,11 +191,6 @@ fn formatParseError(comptime T: type, a: Allocator, err: anyerror, body: []const
     const off: usize = @intCast(@min(diag.getByteOffset(), body.len));
     const snippet = body[off -| 60..@min(body.len, off + 20)];
     return std.fmt.bufPrint(buf, "{s} at byte {d}: ...{s}...", .{ @errorName(err), off, snippet }) catch @errorName(err);
-}
-
-fn setError(self: *Client, msg: []const u8) void {
-    self.err_len = @min(msg.len, self.err_buf.len);
-    @memcpy(self.err_buf[0..self.err_len], msg[0..self.err_len]);
 }
 
 fn formEncode(a: Allocator, params: []const Param) ![]u8 {
@@ -281,23 +259,26 @@ pub fn zip(self: *Client) Zip {
 test "decode maps error codes" {
     var c: Client = .{ .allocator = std.testing.allocator, .io = std.testing.io, .http = undefined, .options = .{ .auth = .{ .api_key = "" } } };
     const T = struct {};
+    var d: Diagnostics = .{};
 
     try std.testing.expectError(error.ApiError, c.decode(T, 200,
         \\{"status":"error","code":"rate_limit_reached","message":"slow down"}
-    , null));
-    try std.testing.expectEqual(ErrorCode.rate_limit_reached, c.lastErrorCode().?);
-    try std.testing.expectEqual(ErrorCode.Retry.semi_permanent, c.lastErrorCode().?.retry());
-    try std.testing.expectEqualStrings("slow down", c.lastError().?);
+    , &d));
+    try std.testing.expectEqual(ErrorCode.rate_limit_reached, d.code.?);
+    try std.testing.expectEqual(ErrorCode.Retry.semi_permanent, d.code.?.retry());
+    try std.testing.expectEqualStrings("slow down", d.message().?);
 
     // Unrecognised code falls back to unknown_error.
     try std.testing.expectError(error.ApiError, c.decode(T, 200,
         \\{"status":"error","code":"brand_new_code","message":"x"}
-    , null));
-    try std.testing.expectEqual(ErrorCode.unknown_error, c.lastErrorCode().?);
+    , &d));
+    try std.testing.expectEqual(ErrorCode.unknown_error, d.code.?);
 
     // HTTP 500 with a non-JSON body.
-    try std.testing.expectError(error.BadStatus, c.decode(T, 500, "Internal Server Error", null));
-    try std.testing.expectEqual(ErrorCode.unknown_error, c.lastErrorCode().?);
+    d = .{};
+    try std.testing.expectError(error.BadStatus, c.decode(T, 500, "Internal Server Error", &d));
+    try std.testing.expectEqual(ErrorCode.unknown_error, d.code.?);
+    try std.testing.expectEqual(@as(?[]const u8, null), d.message());
 }
 
 test formEncode {
@@ -322,7 +303,7 @@ test "access_token auth sends a bearer header and no apikey" {
     var c = srv.clientWithAuth(.{ .access_token = "tok123" });
     defer c.deinit();
 
-    const res = try c.account().info();
+    const res = try c.account().info(.{});
     defer res.deinit();
 
     try srv.expectGet("GET /api/account/info");
@@ -338,10 +319,11 @@ test "api error end to end" {
     var c = srv.client();
     defer c.deinit();
 
-    try std.testing.expectError(error.ApiError, c.account().info());
-    try std.testing.expectEqual(ErrorCode.authentication_failed, c.lastErrorCode().?);
-    try std.testing.expectEqual(ErrorCode.Retry.permanent, c.lastErrorCode().?.retry());
-    try std.testing.expectEqualStrings("API key invalid", c.lastError().?);
+    var d: Diagnostics = .{};
+    try std.testing.expectError(error.ApiError, c.account().info(.{ .diag = &d }));
+    try std.testing.expectEqual(ErrorCode.authentication_failed, d.code.?);
+    try std.testing.expectEqual(ErrorCode.Retry.permanent, d.code.?.retry());
+    try std.testing.expectEqualStrings("API key invalid", d.message().?);
 }
 
 test "response that doesn't match the type is InvalidResponse" {
@@ -354,8 +336,10 @@ test "response that doesn't match the type is InvalidResponse" {
     defer c.deinit();
 
     // AccountInfo requires customer_id.
-    try std.testing.expectError(error.InvalidResponse, c.account().info());
-    try std.testing.expect(std.mem.startsWith(u8, c.lastError().?, "MissingField"));
+    var d: Diagnostics = .{};
+    try std.testing.expectError(error.InvalidResponse, c.account().info(.{ .diag = &d }));
+    try std.testing.expect(std.mem.startsWith(u8, d.message().?, "MissingField"));
+    try std.testing.expectEqual(@as(?ErrorCode, null), d.code);
 }
 
 test "http 500 is BadStatus with unknown_error" {
@@ -365,11 +349,12 @@ test "http 500 is BadStatus with unknown_error" {
     var c = srv.client();
     defer c.deinit();
 
-    try std.testing.expectError(error.BadStatus, c.account().info());
-    try std.testing.expectEqual(ErrorCode.unknown_error, c.lastErrorCode().?);
+    var d: Diagnostics = .{};
+    try std.testing.expectError(error.BadStatus, c.account().info(.{ .diag = &d }));
+    try std.testing.expectEqual(ErrorCode.unknown_error, d.code.?);
 }
 
-test "error state resets on the next call" {
+test "diagnostics reset at the start of a call" {
     const mock = @import("testing.zig");
     const srv = try mock.MockServer.start(std.testing.allocator, 200,
         \\{"status":"success","customer_id":"1"}
@@ -379,22 +364,23 @@ test "error state resets on the next call" {
     defer c.deinit();
 
     // Pretend a previous call failed.
-    c.err_code = .not_found;
-    c.setError("stale");
+    var d: Diagnostics = .{};
+    d.set(.not_found, "stale");
 
-    const res = try c.account().info();
+    const res = try c.account().info(.{ .diag = &d });
     defer res.deinit();
-    try std.testing.expectEqual(@as(?ErrorCode, null), c.lastErrorCode());
-    try std.testing.expectEqual(@as(?[]const u8, null), c.lastError());
+    try std.testing.expectEqual(@as(?ErrorCode, null), d.code);
+    try std.testing.expectEqual(@as(?[]const u8, null), d.message());
 }
 
 test "parse errors report where the body stopped matching" {
     var c: Client = .{ .allocator = std.testing.allocator, .io = std.testing.io, .http = undefined, .options = .{ .auth = .{ .api_key = "" } } };
     const T = struct { name: []const u8, size: u64 };
+    var d: Diagnostics = .{};
     try std.testing.expectError(error.InvalidResponse, c.decode(T, 200,
         \\{"status":"success","name":null,"size":1}
-    , null));
-    const msg = c.lastError().?;
+    , &d));
+    const msg = d.message().?;
     try std.testing.expect(std.mem.startsWith(u8, msg, "UnexpectedToken at byte "));
     try std.testing.expect(std.mem.indexOf(u8, msg, "\"name\":null") != null);
 }

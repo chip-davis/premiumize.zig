@@ -10,39 +10,46 @@ client: *Client,
 
 pub const ItemDetailsOptions = struct {
     id: []const u8, // File ID
+    diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
 };
 
 /// GET /item/details
 /// Returns full metadata for a single file. Folder IDs are not accepted; pass a file ID only.
 pub fn details(self: Item, opts: ItemDetailsOptions) !std.json.Parsed(types.ItemDetails) {
-    return self.client.get(types.ItemDetails, endpoints.item.details, &.{.{ .name = "id", .value = opts.id }}, null);
+    return self.client.get(types.ItemDetails, endpoints.item.details, &.{.{ .name = "id", .value = opts.id }}, opts.diag);
 }
 
 pub const ItemRenameOptions = struct {
     id: []const u8,
     name: []const u8,
+    diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
 };
 
 /// POST /item/rename
 /// Renames a file.
 pub fn rename(self: Item, opts: ItemRenameOptions) !void {
-    return self.client.postOk(endpoints.item.rename, &.{ .{ .name = "id", .value = opts.id }, .{ .name = "name", .value = opts.name } }, null);
+    return self.client.postOk(endpoints.item.rename, &.{ .{ .name = "id", .value = opts.id }, .{ .name = "name", .value = opts.name } }, opts.diag);
 }
 
 pub const ItemDeleteOptions = struct {
     id: []const u8, // File ID
+    diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
 };
 
 /// POST /item/delete : Deletes a file
 pub fn delete(self: Item, opts: ItemDeleteOptions) !void {
-    return self.client.postOk(endpoints.item.delete, &.{.{ .name = "id", .value = opts.id }}, null);
+    return self.client.postOk(endpoints.item.delete, &.{.{ .name = "id", .value = opts.id }}, opts.diag);
 }
+
+pub const ItemListAllOptions = struct {
+    diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
+};
 
 /// GET /item/listall : Returns a flat list of every file the user owns, with full path.
 /// Parameters: None.
 /// Each files entry has id, name, path (the slash-joined path from root), size (bytes), created_at (Unix timestamp), and mime_type.
-pub fn listAll(self: Item) !std.json.Parsed(types.ItemListAll) {
-    return self.client.get(types.ItemListAll, endpoints.item.listall, &.{}, null);
+pub fn listAll(self: Item, opts: ItemListAllOptions) !std.json.Parsed(types.ItemListAll) {
+    return self.client.get(types.ItemListAll, endpoints.item.listall, &.{}, opts.diag);
 }
 
 test "item/details" {
@@ -100,7 +107,7 @@ test "item/listall" {
     var c = srv.client();
     defer c.deinit();
 
-    const res = try c.item().listAll();
+    const res = try c.item().listAll(.{});
     defer res.deinit();
 
     try srv.expectGet("GET /api/item/listall?apikey=test-key");
