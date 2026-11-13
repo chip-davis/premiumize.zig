@@ -119,6 +119,37 @@ pub fn wait(self: Transfer, opts: TransferWaitOptions) !std.json.Parsed(types.Tr
     return Client.Error.Timeout;
 }
 
+pub const TransferFilesOptions = struct {
+    transfer: types.TransferEntry, // From get() or wait(). Must be finished or seeding.
+    diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
+};
+
+/// Helper function wrapping item().details() and folder().walk() : Every file a finished transfer produced, with download links.
+/// Prefers file_id over folder_id, since a single-file transfer's folder_id may be the folder it was saved into.
+/// Paths are relative to the transfer's folder. TransferNotFinished when it has neither.
+pub fn files(self: Transfer, opts: TransferFilesOptions) !std.json.Parsed([]const types.WalkFile) {
+    if (opts.transfer.file_id) |id| {
+        const res = try self.client.item().details(.{ .id = id, .diag = opts.diag });
+        errdefer res.deinit();
+
+        // Reuse the details arena; the strings already live there.
+        const one = try res.arena.allocator().alloc(types.WalkFile, 1);
+        one[0] = .{
+            .id = res.value.id,
+            .path = res.value.name,
+            .name = res.value.name,
+            .size = res.value.size,
+            .link = res.value.link,
+            .mime_type = res.value.mime_type,
+        };
+        return .{ .arena = res.arena, .value = one };
+    }
+
+    if (opts.transfer.folder_id) |id| return self.client.folder().walk(.{ .id = id, .diag = opts.diag });
+
+    return Client.Error.TransferNotFinished;
+}
+
 pub const TransferRetryOptions = struct {
     id: []const u8, // Transfer ID. Required.
     diag: ?*Client.Diagnostics = null, // Filled with error details on failure. Optional.
@@ -350,6 +381,70 @@ test "transfer wait polls until finished" {
     try std.testing.expectEqualStrings("GET /api/transfer/list?apikey=test-key", srv.targetAt(2));
     try std.testing.expectEqual(types.TransferStatus.finished, res.value.status);
     try std.testing.expectEqualStrings("d1", res.value.folder_id.?);
+}
+
+test "transfer files single file" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"success","id":"f1","name":"movie.mkv","size":123,"created_at":1700000000,"folder_id":"d0","mime_type":"video/x-matroska","link":"https://dl/f1"}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    // folder_id is set too (the folder it was saved into); file_id must win.
+    const res = try c.transfer().files(.{ .transfer = testEntry("f1", "d0") });
+    defer res.deinit();
+
+    try srv.expectGet("GET /api/item/details?apikey=test-key&id=f1");
+    try std.testing.expectEqual(@as(usize, 1), srv.count);
+    try std.testing.expectEqual(@as(usize, 1), res.value.len);
+    try std.testing.expectEqualStrings("movie.mkv", res.value[0].path);
+    try std.testing.expectEqualStrings("movie.mkv", res.value[0].name);
+    try std.testing.expectEqual(@as(u64, 123), res.value[0].size);
+    try std.testing.expectEqualStrings("https://dl/f1", res.value[0].link.?);
+}
+
+test "transfer files folder" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"success","content":[
+        \\  {"id":"f2","name":"b.mkv","type":"file","size":2,"link":"https://dl/b"},
+        \\  {"id":"f1","name":"a.mkv","type":"file","size":1,"link":"https://dl/a"}
+        \\]}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    const res = try c.transfer().files(.{ .transfer = testEntry(null, "d1") });
+    defer res.deinit();
+
+    try srv.expectGet("GET /api/folder/list?apikey=test-key&id=d1");
+    try std.testing.expectEqual(@as(usize, 2), res.value.len);
+    try std.testing.expectEqualStrings("a.mkv", res.value[0].path);
+    try std.testing.expectEqualStrings("https://dl/b", res.value[1].link.?);
+}
+
+test "transfer files not finished" {
+    // No request is made, so the client needs no server.
+    var c = Client.init(std.testing.allocator, undefined, .{ .auth = .{ .api_key = mock.api_key } });
+    try std.testing.expectError(error.TransferNotFinished, c.transfer().files(.{ .transfer = testEntry(null, null) }));
+}
+
+test "transfer files details error" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"error","message":"File not found.","code":"not_found"}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    var d: Client.Diagnostics = .{};
+    try std.testing.expectError(error.ApiError, c.transfer().files(.{ .transfer = testEntry("f1", null), .diag = &d }));
+    try std.testing.expectEqual(Client.ErrorCode.not_found, d.code.?);
+}
+
+fn testEntry(file_id: ?[]const u8, folder_id: ?[]const u8) types.TransferEntry {
+    return .{ .id = "t1", .name = "x", .status = .finished, .folder_id = folder_id, .file_id = file_id, .created_at = 0 };
 }
 
 test "transfer wait timeout" {

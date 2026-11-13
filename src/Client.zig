@@ -1,18 +1,18 @@
 const Client = @This();
 
 const std = @import("std");
-const httpx = @import("httpx");
 const Allocator = std.mem.Allocator;
 
-pub const Param = @typeInfo(@FieldType(httpx.client.requestPayload, "headers")).pointer.child;
+/// A query or form parameter.
+pub const Param = std.http.Header;
 
 pub const default_base_url = "https://www.premiumize.me/api";
 
 pub const Auth = union(enum) { api_key: []const u8, access_token: []const u8 };
 
-pub const Options = struct { auth: Auth, base_url: []const u8 = default_base_url, timeout_ms: u64 = 30_000 };
+pub const Options = struct { auth: Auth, base_url: []const u8 = default_base_url };
 
-pub const Error = error{ ApiError, BadStatus, InvalidResponse, InvalidArgument, Timeout, TransferNotFound };
+pub const Error = error{ ApiError, BadStatus, InvalidResponse, InvalidArgument, Timeout, TransferNotFound, TransferNotFinished };
 
 /// The `code` field of an error response. Read it from `Diagnostics.code` after `error.ApiError`.
 pub const ErrorCode = enum {
@@ -37,6 +37,8 @@ pub const ErrorCode = enum {
 
     pub const Retry = enum { transient, semi_permanent, permanent, unknown };
 
+    /// Category from the API docs. A hint only: the live API doesn't always match it
+    /// (e.g. retrying a finished transfer returns transient_error "Job not in error state").
     pub fn retry(self: ErrorCode) Retry {
         return switch (self) {
             .link_generation_failed, .transient_error => .transient,
@@ -66,14 +68,14 @@ pub const Diagnostics = struct {
 
 allocator: Allocator,
 io: std.Io,
-http: httpx.Client,
+http: std.http.Client,
 options: Options,
 
 pub fn init(allocator: Allocator, io: std.Io, options: Options) Client {
     return .{
         .allocator = allocator,
         .io = io,
-        .http = httpx.Client.init(allocator, io, .{}),
+        .http = .{ .allocator = allocator, .io = io },
         .options = options,
     };
 }
@@ -100,16 +102,13 @@ pub fn postOk(self: *Client, path: []const u8, params: []const Param, diag: ?*Di
 fn call(
     self: *Client,
     comptime T: type,
-    method: httpx.Method,
+    method: std.http.Method,
     path: []const u8,
     params: []const Param,
     diag: ?*Diagnostics,
 ) !std.json.Parsed(T) {
     if (diag) |d| d.* = .{};
     const a = self.allocator;
-
-    const url = try std.mem.concat(a, u8, &.{ self.options.base_url, path });
-    defer a.free(url);
 
     var query: std.ArrayList(Param) = .empty;
     defer query.deinit(a);
@@ -118,24 +117,36 @@ fn call(
         try query.append(a, .{ .name = "apikey", .value = self.options.auth.api_key });
     if (method == .GET) try query.appendSlice(a, params);
 
+    const qs = try formEncode(a, query.items);
+    defer a.free(qs);
+
+    const url = try std.mem.concat(a, u8, &.{ self.options.base_url, path, if (qs.len > 0) "?" else "", qs });
+    defer a.free(url);
+
     const form: ?[]u8 = if (method == .GET) null else try formEncode(a, params);
     defer if (form) |f| a.free(f);
 
-    const bearer: ?[]const u8 = switch (self.options.auth) {
-        .access_token => |t| t,
+    const bearer: ?[]u8 = switch (self.options.auth) {
+        .access_token => |t| try std.mem.concat(a, u8, &.{ "Bearer ", t }),
         .api_key => null,
     };
+    defer if (bearer) |b| a.free(b);
 
-    var res = try self.http.fetch(url, .{
+    var body: std.Io.Writer.Allocating = .init(a);
+    defer body.deinit();
+
+    const res = try self.http.fetch(.{
+        .location = .{ .url = url },
         .method = method,
-        .query = query.items,
-        .form = form,
-        .bearerAuth = bearer,
-        .timeoutMs = self.options.timeout_ms,
+        .payload = form,
+        .headers = .{
+            .content_type = if (form != null) .{ .override = "application/x-www-form-urlencoded" } else .default,
+            .authorization = if (bearer) |b| .{ .override = b } else .default,
+        },
+        .response_writer = &body.writer,
     });
-    defer res.deinit();
 
-    return self.decode(T, res.status, res.bytes(), diag);
+    return self.decode(T, @intFromEnum(res.status), body.written(), diag);
 }
 
 fn decode(self: *Client, comptime T: type, status: u16, body: []const u8, diag: ?*Diagnostics) !std.json.Parsed(T) {

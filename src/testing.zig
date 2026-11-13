@@ -2,8 +2,7 @@
 //! with canned JSON bodies and records what it receives, so endpoints can be
 //! tested end to end without touching the real API.
 const std = @import("std");
-const httpx = @import("httpx");
-const tcp = httpx.tcp;
+const net = std.Io.net;
 const Client = @import("Client.zig");
 
 pub const api_key = "test-key";
@@ -14,8 +13,9 @@ pub const MockServer = struct {
     const max_requests = 8;
 
     allocator: std.mem.Allocator,
-    ctx: tcp.IoContext,
-    listener: tcp.Listener,
+    io: std.Io,
+    server: net.Server,
+    port: u16,
     thread: std.Thread,
     replies: []const Reply,
     one: [1]Reply = undefined, // Backing for start()'s single reply.
@@ -49,24 +49,25 @@ pub const MockServer = struct {
     fn create(a: std.mem.Allocator) !*MockServer {
         const self = try a.create(MockServer);
         errdefer a.destroy(self);
+        const io = std.testing.io;
+        const addr = try net.IpAddress.parseIp4("127.0.0.1", 0);
         self.* = .{
             .allocator = a,
-            .ctx = try tcp.IoContext.init(a),
-            .listener = undefined,
+            .io = io,
+            .server = try addr.listen(io, .{}),
+            .port = undefined,
             .thread = undefined,
             .replies = &.{},
         };
-        errdefer self.ctx.deinit();
-        self.listener = try tcp.Listener.bind(self.ctx.io, 0);
-        errdefer self.listener.close(self.ctx.io);
-        self.base_url = try std.fmt.bufPrint(&self.url_buf, "http://127.0.0.1:{d}/api", .{self.listener.localPort()});
+        errdefer self.server.deinit(io);
+        self.port = self.server.socket.address.getPort();
+        self.base_url = try std.fmt.bufPrint(&self.url_buf, "http://127.0.0.1:{d}/api", .{self.port});
         return self;
     }
 
     fn launch(self: *MockServer) !*MockServer {
         self.thread = std.Thread.spawn(.{}, run, .{self}) catch |e| {
-            self.listener.close(self.ctx.io);
-            self.ctx.deinit();
+            self.server.deinit(self.io);
             self.allocator.destroy(self);
             return e;
         };
@@ -76,13 +77,10 @@ pub const MockServer = struct {
     pub fn deinit(self: *MockServer) void {
         // Wake the acceptor in case the client stopped before using every reply.
         self.stop.store(true, .release);
-        if (tcp.connect(self.ctx.io, "127.0.0.1", self.listener.localPort())) |s| {
-            var waker = s;
-            waker.close();
-        } else |_| {}
+        const addr = net.IpAddress.parseIp4("127.0.0.1", self.port) catch unreachable;
+        if (addr.connect(self.io, .{ .mode = .stream })) |waker| waker.close(self.io) else |_| {}
         self.thread.join();
-        self.listener.close(self.ctx.io);
-        self.ctx.deinit();
+        self.server.deinit(self.io);
         self.allocator.destroy(self);
     }
 
@@ -92,7 +90,7 @@ pub const MockServer = struct {
     }
 
     pub fn clientWithAuth(self: *MockServer, auth: Client.Auth) Client {
-        return Client.init(self.allocator, self.ctx.io, .{ .auth = auth, .base_url = self.base_url, .timeout_ms = 5_000 });
+        return Client.init(self.allocator, self.io, .{ .auth = auth, .base_url = self.base_url });
     }
 
     /// The raw request bytes. Only valid after the client call has returned.
@@ -145,14 +143,14 @@ pub const MockServer = struct {
     fn run(self: *MockServer) void {
         var buf: [16 * 1024]u8 = undefined;
         for (self.replies, 0..) |reply, i| {
-            var conn = self.listener.accept(self.ctx.io) catch return;
-            defer conn.close();
+            const conn = self.server.accept(self.io) catch return;
+            defer conn.close(self.io);
             if (self.stop.load(.acquire)) return;
-            conn.setReadTimeoutMs(5_000);
 
             var len: usize = 0;
             while (len < buf.len) {
-                const n = conn.read(buf[len..]) catch return;
+                var bufs = [_][]u8{buf[len..]};
+                const n = conn.read(self.io, &bufs) catch return;
                 if (n == 0) break;
                 len += n;
                 if (requestComplete(buf[0..len])) break;
@@ -170,8 +168,11 @@ pub const MockServer = struct {
 
             var head: [160]u8 = undefined;
             const h = std.fmt.bufPrint(&head, "HTTP/1.1 {d} Mock\r\nContent-Type: application/json\r\nContent-Length: {d}\r\nConnection: close\r\n\r\n", .{ reply.status, reply.body.len }) catch return;
-            conn.writeAll(h) catch return;
-            conn.writeAll(reply.body) catch return;
+            var wbuf: [1024]u8 = undefined;
+            var w = conn.writer(self.io, &wbuf);
+            w.interface.writeAll(h) catch return;
+            w.interface.writeAll(reply.body) catch return;
+            w.interface.flush() catch return;
             self.count = i + 1;
         }
     }

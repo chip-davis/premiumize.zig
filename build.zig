@@ -20,7 +20,6 @@ pub fn build(b: *std.Build) void {
     // of this build script using `b.option()`. All defined flags (including
     // target and optimize options) will be listed when running `zig build --help`
     // in this directory.
-    const httpx_dep = b.dependency("httpx", .{ .target = target, .optimize = optimize });
     // This creates a module, which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
     // Zig modules are the preferred way of making Zig code available to consumers.
@@ -82,10 +81,6 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
-
-    // The library uses httpx internally; the exe gets it too while main.zig imports it.
-    mod.addImport("httpx", httpx_dep.module("httpx"));
-    exe.root_module.addImport("httpx", httpx_dep.module("httpx"));
 
     // This declares intent for the executable to be installed into the
     // install prefix when running `zig build` (i.e. when executing the default

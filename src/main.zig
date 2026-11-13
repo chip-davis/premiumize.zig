@@ -173,10 +173,17 @@ pub fn main(init: std.process.Init) !void {
         const final: TransferStatus = if (pm.transfer().wait(.{ .id = tid, .timeout_s = transfer_timeout_s, .diag = &run.diag })) |r| blk: {
             defer r.deinit();
             run.ok("transfer/wait", "{t} ({d:.0}%) {s}", .{ r.value.status, (r.value.progress orelse 0) * 100, r.value.message orelse "" });
+            if (pm.transfer().files(.{ .transfer = r.value, .diag = &run.diag })) |f| {
+                defer f.deinit();
+                var total: u64 = 0;
+                for (f.value) |x| total += x.size;
+                run.ok("transfer/files", "{d} file(s), {d} bytes (file_id {s}, folder_id {s})", .{ f.value.len, total, r.value.file_id orelse "-", r.value.folder_id orelse "-" });
+            } else |e| run.fail("transfer/files", e);
             break :blk r.value.status;
         } else |e| blk: {
             // Still running at the deadline is fine; the rest of the run copes without the file.
             if (e == error.Timeout) run.ok("transfer/wait", "still running after {d}s; continuing", .{transfer_timeout_s}) else run.fail("transfer/wait", e);
+            run.skip("transfer/files", "transfer not finished");
             break :blk .unknown;
         };
         if (pm.transfer().retry(.{ .id = tid, .diag = &run.diag })) {
@@ -188,6 +195,7 @@ pub fn main(init: std.process.Init) !void {
     } else {
         run.skip("transfer/list", "no transfer");
         run.skip("transfer/wait", "no transfer");
+        run.skip("transfer/files", "no transfer");
         run.skip("transfer/retry", "no transfer");
     }
 
