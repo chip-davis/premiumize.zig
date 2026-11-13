@@ -322,6 +322,36 @@ test "transfer wait returns failed transfer" {
     try std.testing.expectEqualStrings("Torrent has no seeders", res.value.message.?);
 }
 
+test "transfer wait polls until finished" {
+    const srv = try mock.MockServer.startSeq(std.testing.allocator, &.{
+        .{ .body =
+        \\{"status":"success","transfers":[
+        \\  {"id":"t1","name":"movie.mkv","status":"running","progress":0.5,"message":null,"folder_id":null,"file_id":null,"created_at":1700000000}
+        \\]}
+        },
+        .{ .body =
+        \\{"status":"error","message":"Slow down.","code":"rate_limit_reached"}
+        },
+        .{ .body =
+        \\{"status":"success","transfers":[
+        \\  {"id":"t1","name":"movie.mkv","status":"finished","progress":null,"message":null,"folder_id":"d1","file_id":null,"created_at":1700000000}
+        \\]}
+        },
+    });
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    // running, then a retryable error, then finished: three polls, two 1s sleeps.
+    const res = try c.transfer().wait(.{ .id = "t1", .interval_s = 1 });
+    defer res.deinit();
+
+    try std.testing.expectEqual(@as(usize, 3), srv.count);
+    try std.testing.expectEqualStrings("GET /api/transfer/list?apikey=test-key", srv.targetAt(2));
+    try std.testing.expectEqual(types.TransferStatus.finished, res.value.status);
+    try std.testing.expectEqualStrings("d1", res.value.folder_id.?);
+}
+
 test "transfer wait timeout" {
     const srv = try mock.MockServer.start(std.testing.allocator, 200,
         \\{"status":"success","transfers":[

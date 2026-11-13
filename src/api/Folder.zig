@@ -181,6 +181,134 @@ fn byPath(_: void, x: types.WalkFile, y: types.WalkFile) bool {
     return std.mem.lessThan(u8, x.path, y.path);
 }
 
+test "folder walk nested" {
+    // walk visits folders last-in first-out: d0, then Extras (d2), then Season 1 (d1), then Subs (d3).
+    const srv = try mock.MockServer.startSeq(std.testing.allocator, &.{
+        .{ .body =
+        \\{"status":"success","content":[
+        \\  {"id":"f0","name":"b.mkv","type":"file","size":10,"link":"https://dl/b","mime_type":"video/x-matroska"},
+        \\  {"id":"d1","name":"Season 1","type":"folder"},
+        \\  {"id":"d2","name":"Extras","type":"folder"},
+        \\  {"id":"x0","name":"odd","type":"symlink"}
+        \\]}
+        },
+        .{ .body =
+        \\{"status":"success","content":[{"id":"f1","name":"trailer.mkv","type":"file","size":20}]}
+        },
+        .{ .body =
+        \\{"status":"success","content":[
+        \\  {"id":"f3","name":"ep02.mkv","type":"file","size":30},
+        \\  {"id":"f2","name":"ep01.mkv","type":"file","size":40},
+        \\  {"id":"d3","name":"Subs","type":"folder"}
+        \\]}
+        },
+        .{ .body =
+        \\{"status":"success","content":[{"id":"f4","name":"en.srt","type":"file"}]}
+        },
+    });
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    const res = try c.folder().walk(.{ .id = "d0" });
+    defer res.deinit();
+
+    try std.testing.expectEqual(@as(usize, 4), srv.count);
+    try std.testing.expectEqualStrings("GET /api/folder/list?apikey=test-key&id=d0", srv.targetAt(0));
+    try std.testing.expectEqualStrings("GET /api/folder/list?apikey=test-key&id=d2", srv.targetAt(1));
+    try std.testing.expectEqualStrings("GET /api/folder/list?apikey=test-key&id=d1", srv.targetAt(2));
+    try std.testing.expectEqualStrings("GET /api/folder/list?apikey=test-key&id=d3", srv.targetAt(3));
+
+    // Files only (the unknown "symlink" is skipped), sorted by path.
+    const f = res.value;
+    try std.testing.expectEqual(@as(usize, 5), f.len);
+    try std.testing.expectEqualStrings("Extras/trailer.mkv", f[0].path);
+    try std.testing.expectEqualStrings("Season 1/Subs/en.srt", f[1].path);
+    try std.testing.expectEqualStrings("Season 1/ep01.mkv", f[2].path);
+    try std.testing.expectEqualStrings("Season 1/ep02.mkv", f[3].path);
+    try std.testing.expectEqualStrings("b.mkv", f[4].path);
+
+    try std.testing.expectEqualStrings("en.srt", f[1].name);
+    try std.testing.expectEqualStrings("f2", f[2].id);
+    try std.testing.expectEqual(@as(u64, 40), f[2].size);
+    try std.testing.expectEqual(@as(u64, 0), f[1].size); // missing size
+    try std.testing.expectEqualStrings("https://dl/b", f[4].link.?);
+    try std.testing.expectEqualStrings("video/x-matroska", f[4].mime_type.?);
+    try std.testing.expectEqual(@as(?[]const u8, null), f[0].link);
+}
+
+test "folder walk root" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"success","content":[{"id":"f0","name":"a.mkv","type":"file","size":1}]}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    const res = try c.folder().walk(.{});
+    defer res.deinit();
+
+    try srv.expectGet("GET /api/folder/list?apikey=test-key");
+    try std.testing.expectEqual(@as(usize, 1), res.value.len);
+    try std.testing.expectEqualStrings("a.mkv", res.value[0].path);
+}
+
+test "folder walk empty folder" {
+    const srv = try mock.MockServer.start(std.testing.allocator, 200,
+        \\{"status":"success","content":[]}
+    );
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    const res = try c.folder().walk(.{ .id = "d0" });
+    defer res.deinit();
+
+    try std.testing.expectEqual(@as(usize, 0), res.value.len);
+}
+
+test "folder walk fails when a subfolder fails" {
+    const srv = try mock.MockServer.startSeq(std.testing.allocator, &.{
+        .{ .body =
+        \\{"status":"success","content":[
+        \\  {"id":"f0","name":"a.mkv","type":"file","size":1},
+        \\  {"id":"d1","name":"Sub","type":"folder"}
+        \\]}
+        },
+        .{ .body =
+        \\{"status":"error","message":"Folder not found.","code":"not_found"}
+        },
+    });
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    // testing.allocator flags a leak if the partial result isn't freed.
+    var d: Client.Diagnostics = .{};
+    try std.testing.expectError(error.ApiError, c.folder().walk(.{ .id = "d0", .diag = &d }));
+    try std.testing.expectEqual(Client.ErrorCode.not_found, d.code.?);
+    try std.testing.expectEqualStrings("Folder not found.", d.message().?);
+    try std.testing.expectEqualStrings("GET /api/folder/list?apikey=test-key&id=d1", srv.targetAt(1));
+}
+
+test "folder walk stops at the first failure" {
+    // Second reply is never requested; deinit must still return.
+    const srv = try mock.MockServer.startSeq(std.testing.allocator, &.{
+        .{ .body =
+        \\{"status":"error","message":"Not logged in.","code":"authentication_failed"}
+        },
+        .{ .body =
+        \\{"status":"success","content":[]}
+        },
+    });
+    defer srv.deinit();
+    var c = srv.client();
+    defer c.deinit();
+
+    try std.testing.expectError(error.ApiError, c.folder().walk(.{ .id = "d0" }));
+    try std.testing.expectEqual(@as(usize, 1), srv.count);
+}
+
 test "folder/list root" {
     const srv = try mock.MockServer.start(std.testing.allocator, 200,
         \\{"status":"success","name":"My Files","content":[
