@@ -165,7 +165,20 @@ pub fn main(init: std.process.Init) !void {
     };
 
     if (transfer_id) |tid| {
-        const final = try waitForTransfer(&pm, &run, io, tid);
+        if (pm.transfer().list()) |r| {
+            defer r.deinit();
+            run.ok("transfer/list", "{d} transfer(s)", .{r.value.transfers.len});
+        } else |e| run.fail("transfer/list", e);
+
+        const final: TransferStatus = if (pm.transfer().wait(.{ .id = tid, .timeout_s = transfer_timeout_s })) |r| blk: {
+            defer r.deinit();
+            run.ok("transfer/wait", "{t} ({d:.0}%) {s}", .{ r.value.status, (r.value.progress orelse 0) * 100, r.value.message orelse "" });
+            break :blk r.value.status;
+        } else |e| blk: {
+            // Still running at the deadline is fine; the rest of the run copes without the file.
+            if (e == error.Timeout) run.ok("transfer/wait", "still running after {d}s; continuing", .{transfer_timeout_s}) else run.fail("transfer/wait", e);
+            break :blk .unknown;
+        };
         if (pm.transfer().retry(.{ .id = tid })) {
             run.ok("transfer/retry", "re-queued", .{});
         } else |e| {
@@ -174,6 +187,7 @@ pub fn main(init: std.process.Init) !void {
         }
     } else {
         run.skip("transfer/list", "no transfer");
+        run.skip("transfer/wait", "no transfer");
         run.skip("transfer/retry", "no transfer");
     }
 
@@ -250,36 +264,6 @@ pub fn main(init: std.process.Init) !void {
             run.ok("transfer/clearfinished", "cleared", .{});
         } else |e| run.fail("transfer/clearfinished", e);
     } else run.skip("transfer/clearfinished", "pass --clear-finished to run (clears ALL finished transfers)");
-}
-
-/// Polls /transfer/list until the transfer leaves queued/running. Returns its last status.
-fn waitForTransfer(pm: *Client, run: *Run, io: std.Io, tid: []const u8) !TransferStatus {
-    var status: TransferStatus = .unknown;
-    var waited: i64 = 0;
-    var polls: usize = 0;
-    while (waited <= transfer_timeout_s) : (waited += 3) {
-        const r = pm.transfer().list() catch |e| {
-            run.fail("transfer/list", e);
-            return status;
-        };
-        defer r.deinit();
-        polls += 1;
-
-        for (r.value.transfers) |t| {
-            if (!std.mem.eql(u8, t.id, tid)) continue;
-            status = t.status;
-            switch (t.status) {
-                .finished, .seeding, .@"error" => {
-                    run.ok("transfer/list", "{t} after {d} poll(s) ({d:.0}%) {s}", .{ t.status, polls, (t.progress orelse 0) * 100, t.message orelse "" });
-                    return status;
-                },
-                .queued, .running, .unknown => std.debug.print("        {s:<24} {t} {d:.0}%\n", .{ "", t.status, (t.progress orelse 0) * 100 }),
-            }
-        }
-        try io.sleep(.fromSeconds(3), .awake);
-    }
-    run.ok("transfer/list", "still running after {d}s; continuing", .{transfer_timeout_s});
-    return status;
 }
 
 fn finish(run: *const Run) void {
